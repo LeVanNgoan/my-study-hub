@@ -7,6 +7,7 @@ use std::{
   io::{Cursor, Read, Write},
   path::{Path, PathBuf},
   process::Command,
+  time::Duration,
 };
 use tauri::{AppHandle, Manager};
 use zip::{write::SimpleFileOptions, ZipArchive, ZipWriter};
@@ -25,7 +26,9 @@ fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn conn(app: &AppHandle) -> Result<Connection, String> {
   let c = Connection::open(db_path(app)?).map_err(|e| e.to_string())?;
+  c.busy_timeout(Duration::from_secs(5)).map_err(|e| e.to_string())?;
   c.pragma_update(None, "foreign_keys", "ON").map_err(|e| e.to_string())?;
+  c.pragma_update(None, "synchronous", "FULL").map_err(|e| e.to_string())?;
   Ok(c)
 }
 
@@ -205,6 +208,14 @@ fn init_db(app: &AppHandle) -> Result<(), String> {
       sort_order INTEGER NOT NULL DEFAULT 0
     );
   "#).map_err(|e| e.to_string())?;
+
+  // Database migration foundation. Keep this identifier and app-data location stable
+  // so future Setup upgrades can migrate data in-place instead of replacing it.
+  let schema_version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+  if schema_version < 1 {
+    c.pragma_update(None, "user_version", 1).map_err(|e| e.to_string())?;
+  }
+
   Ok(())
 }
 
@@ -477,6 +488,15 @@ fn reset_all_data(app:AppHandle)->Result<bool,String>{let dir=app_dir(&app)?;let
 
 pub fn run(){
   tauri::Builder::default()
+    // Keep one process only. Re-opening the app focuses the existing window instead
+    // of opening a second SQLite writer.
+    .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+      if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+      }
+    }))
     .setup(|app|{init_db(app.handle()).map_err(|e|std::io::Error::new(std::io::ErrorKind::Other,e))?;Ok(())})
     .invoke_handler(tauri::generate_handler![
       app_info,open_local_file,open_data_folder,list_semesters,create_semester,update_semester,delete_semester,

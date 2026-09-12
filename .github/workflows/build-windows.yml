@@ -37,6 +37,15 @@ jobs:
           }
           Write-Host "Tauri Windows icon found."
 
+      - name: Validate stable installer configuration
+        shell: pwsh
+        run: |
+          $config = Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
+          if ($config.identifier -ne "com.local.mystudyhub") { throw "Do not change the app identifier: it protects the stable data location." }
+          if ($config.bundle.windows.nsis.installMode -ne "currentUser") { throw "Expected currentUser NSIS setup mode." }
+          if ($config.bundle.windows.webviewInstallMode.type -ne "offlineInstaller") { throw "Expected self-contained WebView2 offline installer." }
+          Write-Host "Stable installer configuration validated."
+
       - name: Install frontend dependencies
         run: npm install --no-audit --no-fund
 
@@ -48,9 +57,8 @@ jobs:
       - name: Upload Windows EXE artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: My-Study-Hub-Windows-${{ github.sha }}
+          name: My-Study-Hub-Setup-Windows-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
           path: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/my-study-hub-local.exe
+            src-tauri/target/release/bundle/nsis/*-setup.exe

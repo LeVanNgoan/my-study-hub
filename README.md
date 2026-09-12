@@ -1,4 +1,7 @@
-# My Study Hub — Local-first v2.1
+# My Study Hub
+
+**Stable Windows setup:** install the generated `-setup.exe` once, then launch My Study Hub from the Windows Start Menu. Local SQLite data remains separate from the installed program files. See `STABLE_SETUP.md`.
+
 
 A private desktop study management system built around **manual setup, deep study notes, and long-term knowledge retention**.
 

@@ -51,7 +51,9 @@ jobs:
           releaseBody: |
             Windows build of My Study Hub.
 
-            Download the NSIS setup `.exe` below and install normally.
+            Download the `-setup.exe` file below and run it once.
+
+            This is the normal installed desktop edition: Start Menu shortcut, local SQLite data, offline WebView2 runtime, and in-place upgrades that keep your study data.
           releaseDraft: false
           prerelease: false
           args: --bundles nsis
