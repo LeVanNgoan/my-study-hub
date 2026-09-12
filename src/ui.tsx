@@ -56,5 +56,5 @@ export function Field({ label, children, hint }: { label: string; children: Reac
 }
 
 export function ConfirmButton({ children, onConfirm, className = 'danger ghost' }: { children: ReactNode; onConfirm: () => void; className?: string }) {
-  return <button className={`btn ${className}`} onClick={() => { if (confirm('Bạn chắc chắn muốn xóa?')) onConfirm(); }}>{children}</button>;
+  return <button className={`btn ${className}`} onClick={() => { if (confirm('Are you sure you want to delete this item?')) onConfirm(); }}>{children}</button>;
 }

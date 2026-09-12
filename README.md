@@ -1,39 +1,38 @@
-# My Study Hub — Local-first v2
+# My Study Hub — Local-first v2.1
 
-A personal desktop study management system designed around **manual setup + deep study history**.
+A private desktop study management system built around **manual setup, deep study notes, and long-term knowledge retention**.
 
-## Core principles
+## Product principles
 
-- No account / login.
+- No account or login.
 - No cloud database.
-- No Supabase.
-- No pre-seeded curriculum.
+- No preconfigured curriculum.
 - No automatic subject generation.
 - You manually create every Semester and Subject.
-- Native app data is stored locally using SQLite.
-- Uploaded files are copied into My Study Hub's local data folder.
-- Backup/restore is built into the app.
+- Native desktop data is stored locally with SQLite.
+- Uploaded files are copied into the app data folder.
+- Backup and restore are built into the app.
+- The entire interface is English.
 
-## Data model
+## Core structure
 
 ```text
 Semester
 └── Subject
     ├── Overview
-    ├── Lecturer
-    ├── Materials
     ├── Study Notes
-    │   └── Critical Notes
-    ├── Reports
+    ├── Materials
+    ├── Critical Notes
+    ├── Reports / Projects
     │   ├── Team Members
     │   └── Files
-    └── Grade Scheme
-        └── Grade Components
+    ├── Lecturer
+    └── Results
 ```
 
 ## Study Note filename convention
 
-The filename parser supports:
+The optional filename parser supports:
 
 ```text
 WWSS-DDMMYY.txt
@@ -49,13 +48,11 @@ is interpreted as:
 
 - Week 01
 - Slot 02
-- 11/09/2026
+- 11 September 2026
 
-This convention is optional. Notes can always be entered manually.
+Notes can always be entered manually, so the naming convention is never required.
 
 ## Native storage
-
-The native Tauri app stores data under the OS application data directory:
 
 ```text
 My Study Hub data folder/
@@ -68,19 +65,22 @@ My Study Hub data folder/
 └── backups/
 ```
 
-The exact path is visible from **Settings → Storage**.
+The exact path is available from **Settings → Storage**.
 
-## Browser preview mode
+## Browser preview
 
-`npm run dev` also works outside Tauri. In that mode the app automatically falls back to browser `localStorage` so UI and workflows can be tested without SQLite/Rust.
+```powershell
+npm install
+npm run dev
+```
 
-Browser preview is only for development. The real desktop build uses SQLite + local files.
+Browser preview uses `localStorage`. The native desktop build uses SQLite and local files.
 
-## Build Windows `.exe` bằng GitHub Actions
+## Build the Windows EXE with GitHub Actions
 
-Project đã có sẵn 2 workflow:
+Two workflows are included:
 
-- `.github/workflows/build-windows.yml`: build `.exe` và lưu trong Actions Artifact.
-- `.github/workflows/release-windows.yml`: build và publish `.exe` vào GitHub Release khi push tag `v*`.
+- `.github/workflows/build-windows.yml` — builds the Windows NSIS installer and uploads it as an Actions artifact.
+- `.github/workflows/release-windows.yml` — creates a GitHub Release when you push a `v*` tag.
 
-Xem hướng dẫn chi tiết trong `GITHUB_BUILD_VI.md`.
+See `GITHUB_BUILD.md` for the full process.
