@@ -30,6 +30,14 @@ jobs:
         with:
           workspaces: ./src-tauri -> target
 
+      - name: Validate Tauri Windows assets
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "src-tauri/icons/icon.ico")) {
+            throw "Missing src-tauri/icons/icon.ico"
+          }
+          Write-Host "Tauri Windows icon found."
+
       - name: Install frontend dependencies
         run: npm install --no-audit --no-fund
 
