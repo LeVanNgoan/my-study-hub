@@ -1,4 +1,5 @@
 import React, { ReactNode } from 'react';
+import { X, Sparkles } from 'lucide-react';
 
 export function Modal({ title, children, onClose, wide = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
   return (
@@ -6,7 +7,7 @@ export function Modal({ title, children, onClose, wide = false }: { title: strin
       <div className={`modal ${wide ? 'modal-wide' : ''}`} onMouseDown={e => e.stopPropagation()}>
         <div className="modal-head">
           <h3>{title}</h3>
-          <button className="icon-btn" onClick={onClose}>×</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><X size={18}/></button>
         </div>
         <div className="modal-body">{children}</div>
       </div>
@@ -37,7 +38,7 @@ export function Badge({ children, tone = 'neutral' }: { children: ReactNode; ton
 export function Empty({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
     <div className="empty">
-      <div className="empty-icon">◇</div>
+      <div className="empty-icon"><Sparkles size={24}/></div>
       <h3>{title}</h3>
       {description && <p>{description}</p>}
       {action}

@@ -1,9 +1,22 @@
 # My Study Hub
 
+**Version 2.3.0 — React + Tailwind UI redesign**
+
 **Stable Windows setup:** install the generated `-setup.exe` once, then launch My Study Hub from the Windows Start Menu. Local SQLite data remains separate from the installed program files. See `STABLE_SETUP.md`.
 
 
 A private desktop study management system built around **manual setup, deep study notes, and long-term knowledge retention**.
+
+
+## Frontend design stack
+
+- React + TypeScript
+- Tailwind CSS
+- Lucide React icons
+- Inter Variable bundled locally
+- Vite + Tauri 2
+
+The UI is fully English and all visual assets/fonts are bundled for offline desktop use. See `UI_DESIGN_SYSTEM.md`.
 
 ## Product principles
 

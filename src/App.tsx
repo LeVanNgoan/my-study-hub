@@ -5,6 +5,7 @@ import type {
   Report, ReportFile, ReportMember, SearchResult, Semester, SemesterStatus, StudyNote, StudyNoteStatus, Subject, SubjectStatus, GradeType
 } from './types';
 import { Badge, ConfirmButton, Empty, Field, Modal, Stars } from './ui';
+import { LayoutDashboard, GraduationCap, NotebookPen, BrainCircuit, Settings, BookOpen, Search, HardDrive, Sparkles, BookMarked, Files, ArrowRight, ChevronLeft, Pencil } from 'lucide-react';
 
 type Page = 'dashboard' | 'semesters' | 'study-notes' | 'knowledge' | 'settings';
 type SubjectTab = 'overview' | 'study-notes' | 'materials' | 'critical' | 'reports' | 'lecturer' | 'results';
@@ -53,25 +54,26 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><div className="brand-mark">MS</div><div><strong>My Study Hub</strong><span>Personal Learning OS</span></div></div>
+        <div className="brand"><div className="brand-mark"><BookOpen size={23} strokeWidth={2.2}/></div><div><strong>My Study Hub</strong><span>Personal Learning OS</span></div></div>
         <nav>
-          <NavButton active={page==='dashboard'} onClick={() => nav('dashboard')} icon="⌂">Dashboard</NavButton>
-          <NavButton active={page==='semesters'} onClick={() => nav('semesters')} icon="▦">Semesters</NavButton>
-          <NavButton active={page==='study-notes'} onClick={() => nav('study-notes')} icon="✎">Study Notes</NavButton>
-          <NavButton active={page==='knowledge'} onClick={() => nav('knowledge')} icon="◆">Knowledge Vault</NavButton>
-          <NavButton active={page==='settings'} onClick={() => nav('settings')} icon="⚙">Settings</NavButton>
+          <NavButton active={page==='dashboard'} onClick={() => nav('dashboard')} icon={<LayoutDashboard size={18}/>}>Dashboard</NavButton>
+          <NavButton active={page==='semesters'} onClick={() => nav('semesters')} icon={<GraduationCap size={18}/>}>Semesters</NavButton>
+          <NavButton active={page==='study-notes'} onClick={() => nav('study-notes')} icon={<NotebookPen size={18}/>}>Study Notes</NavButton>
+          <NavButton active={page==='knowledge'} onClick={() => nav('knowledge')} icon={<BrainCircuit size={18}/>}>Knowledge Vault</NavButton>
+          <NavButton active={page==='settings'} onClick={() => nav('settings')} icon={<Settings size={18}/>}>Settings</NavButton>
         </nav>
-        <div className="sidebar-foot"><span className="dot online"/><div><strong>Private workspace</strong><span>Local data only</span></div></div>
+        <div className="sidebar-callout"><div className="sidebar-callout-icon"><HardDrive size={17}/></div><div><strong>Local-first</strong><span>Your data stays on this device</span></div></div>
+        <div className="sidebar-foot"><span>Built for focused learning.</span></div>
       </aside>
 
       <main className="main">
         <header className="topbar">
           <div className="search-wrap">
-            <span>⌕</span>
+            <Search size={18}/>
             <input value={search} onChange={e=>setSearch(e.target.value)} onFocus={()=>search && setSearchOpen(true)} placeholder="Search subjects, notes, materials..." />
             {searchOpen && <SearchPopover results={searchResults} onSubject={goSubject} onClose={()=>setSearchOpen(false)} />}
           </div>
-          <div className="mode-pill"><span className="mode-dot"/>{isNative() ? 'Desktop · SQLite' : 'Preview · LocalStorage'}</div>
+          <div className="mode-pill"><span className="mode-dot"/>{isNative() ? 'Offline ready' : 'Preview mode'}</div>
         </header>
 
         <section className="content">
@@ -90,8 +92,8 @@ export default function App() {
   );
 }
 
-function NavButton({active,onClick,icon,children}:{active:boolean;onClick:()=>void;icon:string;children:ReactNode}) {
-  return <button className={`nav-btn ${active?'active':''}`} onClick={onClick}><span>{icon}</span>{children}</button>;
+function NavButton({active,onClick,icon,children}:{active:boolean;onClick:()=>void;icon:ReactNode;children:ReactNode}) {
+  return <button className={`nav-btn ${active?'active':''}`} onClick={onClick}><span className="nav-icon">{icon}</span><span>{children}</span></button>;
 }
 
 function SearchPopover({results,onSubject,onClose}:{results:SearchResult[];onSubject:(id:string)=>void;onClose:()=>void}) {
@@ -111,13 +113,13 @@ function Dashboard({onOpenSemester,onOpenSubject}:{onOpenSemester:(id:string)=>v
   if(!data) return <div className="loading">Loading...</div>;
 
   return <>
-    <PageHeader eyebrow="LOCAL STUDY SYSTEM" title="Dashboard" description="A focused, local-first workspace for your entire learning journey." />
+    <PageHeader eyebrow="PERSONAL LEARNING OS" title="Dashboard" description="A focused workspace for everything you learn, review, and want to remember." />
     {!data.current_semester ? (
       <Empty title="No current semester yet" description="Create your first semester, then add the subjects you want to manage." action={<button className="btn primary" onClick={()=>onOpenSemester('')}>Create Semester</button>} />
     ) : <>
       <div className="current-banner" onClick={()=>onOpenSemester(data.current_semester!.id)}>
-        <div><span>CURRENT SEMESTER</span><h2>{data.current_semester.name}</h2><p>{data.current_semester.number!==null ? `Semester ${data.current_semester.number}` : 'Custom semester'} · {data.current_semester.description || 'In progress'}</p></div>
-        <Badge tone="blue">Current</Badge>
+        <div className="banner-copy"><span>CURRENT SEMESTER</span><h2>{data.current_semester.name}</h2><p>{data.current_semester.number!==null ? `Semester ${data.current_semester.number}` : 'Custom semester'} · {data.current_semester.description || 'Keep learning. Make this semester count.'}</p><div className="banner-link">Open semester <ArrowRight size={15}/></div></div>
+        <div className="banner-aside"><Sparkles size={20}/><strong>Build knowledge that lasts.</strong><Badge tone="green">Current</Badge></div>
       </div>
       <div className="stats-grid">
         <Stat label="Semesters" value={data.semester_count}/><Stat label="Subjects" value={data.subject_count}/><Stat label="Study Notes" value={data.study_note_count}/><Stat label="Materials" value={data.material_count}/><Stat label="Critical Notes" value={data.critical_note_count}/>
@@ -138,7 +140,10 @@ function Dashboard({onOpenSemester,onOpenSubject}:{onOpenSemester:(id:string)=>v
   </>;
 }
 
-function Stat({label,value}:{label:string;value:number}) { return <div className="stat"><strong>{value}</strong><span>{label}</span></div>; }
+function Stat({label,value}:{label:string;value:number}) {
+  const icon = label === 'Semesters' ? <GraduationCap size={20}/> : label === 'Subjects' ? <BookOpen size={20}/> : label === 'Study Notes' ? <NotebookPen size={20}/> : label === 'Materials' ? <Files size={20}/> : <BookMarked size={20}/>;
+  return <div className="stat"><div className="stat-icon">{icon}</div><div><strong>{value}</strong><span>{label}</span></div></div>;
+}
 function NoteRow({note,onClick,review=false}:{note:StudyNote;onClick:()=>void;review?:boolean}) { return <button className="note-row" onClick={onClick}><div><strong>{note.subject_code} · {note.title}</strong><span>{note.week?`Week ${String(note.week).padStart(2,'0')}`:''}{note.slot?` · Slot ${String(note.slot).padStart(2,'0')}`:''}{note.study_date?` · ${formatDate(note.study_date)}`:''}</span></div>{review?<span className="mastery">{'★'.repeat(note.mastery)}{'☆'.repeat(5-note.mastery)}</span>:<Badge tone={statusTone(note.status)}>{statusLabel[note.status]}</Badge>}</button>; }
 
 function Semesters({onOpen,reloadApp}:{onOpen:(id:string)=>void;reloadApp:()=>void}) {
@@ -173,7 +178,7 @@ function SemesterDetail({semesterId,onBack,onSubject,reloadApp}:{semesterId:stri
   useEffect(()=>{load()},[semesterId]);
   if(!semester)return <div className="loading">Loading...</div>;
   return <>
-    <button className="back" onClick={onBack}>← All semesters</button>
+    <button className="back" onClick={onBack}><ChevronLeft size={16}/> All semesters</button>
     <PageHeader eyebrow={semester.number!==null?`TERM ${semester.number}`:'CUSTOM TERM'} title={semester.name} description={semester.description||'Manage the subjects in this semester.'} action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Subject</button>}/>
     <div className="semester-meta"><Badge tone={statusTone(semester.status)}>{statusLabel[semester.status]}</Badge>{semester.start_date&&<span>{formatDate(semester.start_date)}</span>}{semester.end_date&&<span>→ {formatDate(semester.end_date)}</span>}</div>
     {subjects.length===0?<Empty title="No subjects yet" description="Subjects are fully manual too. Add only the courses you actually want to track." action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Subject</button>}/>:<div className="subject-grid">{subjects.map(s=><button className="subject-card" key={s.id} onClick={()=>onSubject(s.id)}>
@@ -204,8 +209,8 @@ function SubjectWorkspace({subjectId,tab,setTab,onBack,reloadApp}:{subjectId:str
   if(!subject)return <div className="loading">Loading...</div>;
   const tabs:[SubjectTab,string][]=[['overview','Overview'],['study-notes','Study Notes'],['materials','Materials'],['critical','Critical Notes'],['reports','Reports'],['lecturer','Lecturer'],['results','Results']];
   return <>
-    <button className="back" onClick={onBack}>← Semester</button>
-    <div className="subject-hero"><div><div className="hero-meta"><Badge tone={statusTone(subject.status)}>{statusLabel[subject.status]}</Badge><Stars value={subject.importance} readOnly/></div><span className="subject-code">{subject.code}</span><h1>{subject.name}</h1>{subject.importance_reason&&<p>{subject.importance_reason}</p>}</div><button className="btn ghost" onClick={()=>setShowEdit(true)}>Edit subject</button></div>
+    <button className="back" onClick={onBack}><ChevronLeft size={16}/> Semester</button>
+    <div className="subject-hero"><div><div className="hero-meta"><Badge tone={statusTone(subject.status)}>{statusLabel[subject.status]}</Badge><Stars value={subject.importance} readOnly/></div><span className="subject-code">{subject.code}</span><h1>{subject.name}</h1>{subject.importance_reason&&<p>{subject.importance_reason}</p>}</div><button className="btn ghost" onClick={()=>setShowEdit(true)}><Pencil size={15}/> Edit subject</button></div>
     <div className="tabs">{tabs.map(([k,label])=><button key={k} className={tab===k?'active':''} onClick={()=>setTab(k)}>{label}</button>)}</div>
     {tab==='overview'&&<SubjectOverview subject={subject}/>} 
     {tab==='study-notes'&&<StudyNotesPanel subject={subject} reloadApp={reloadApp}/>} 
