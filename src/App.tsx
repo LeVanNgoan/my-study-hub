@@ -2,7 +2,7 @@ import React, { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react
 import { call, downloadText, fileToBase64, isNative, parseStudyNoteFilename } from './api';
 import type {
   AppInfo, CriticalNote, DashboardData, GradeComponent, GradeScheme, Lecturer, Material,
-  Report, ReportFile, ReportMember, SearchResult, Semester, StudyNote, Subject
+  Report, ReportFile, ReportMember, SearchResult, Semester, SemesterStatus, StudyNote, StudyNoteStatus, Subject, SubjectStatus, GradeType
 } from './types';
 import { Badge, ConfirmButton, Empty, Field, Modal, Stars } from './ui';
 
@@ -155,12 +155,12 @@ function Semesters({onOpen,reloadApp}:{onOpen:(id:string)=>void;reloadApp:()=>vo
 }
 
 function SemesterForm({initial,onClose,onSaved}:{initial:Semester|null;onClose:()=>void;onSaved:()=>void}) {
-  const [number,setNumber]=useState(initial?.number?.toString()||''); const [name,setName]=useState(initial?.name||''); const [status,setStatus]=useState(initial?.status||'planned');
+  const [number,setNumber]=useState(initial?.number?.toString()||''); const [name,setName]=useState(initial?.name||''); const [status,setStatus]=useState<SemesterStatus>(initial?.status||'planned');
   const [start,setStart]=useState(initial?.start_date||''); const [end,setEnd]=useState(initial?.end_date||''); const [description,setDescription]=useState(initial?.description||'');
   const submit=async(e:FormEvent)=>{e.preventDefault();const input={id:initial?.id,number:number===''?null:Number(number),name,status,start_date:start||null,end_date:end||null,description};await call(initial?'update_semester':'create_semester',{input});onSaved();};
   return <Modal title={initial?'Edit Semester':'Add Semester'} onClose={onClose}><form className="form" onSubmit={submit}>
     <div className="form-grid"><Field label="Kỳ số mấy?"><input type="number" min="0" value={number} onChange={e=>setNumber(e.target.value)} placeholder="4"/></Field><Field label="Tên kỳ"><input required value={name} onChange={e=>setName(e.target.value)} placeholder="FALL2026"/></Field></div>
-    <Field label="Status"><select value={status} onChange={e=>setStatus(e.target.value)}><option value="planned">Planned</option><option value="current">Current</option><option value="completed">Completed</option></select></Field>
+    <Field label="Status"><select value={status} onChange={e=>setStatus(e.target.value as SemesterStatus)}><option value="planned">Planned</option><option value="current">Current</option><option value="completed">Completed</option></select></Field>
     <div className="form-grid"><Field label="Start date"><input type="date" value={start} onChange={e=>setStart(e.target.value)}/></Field><Field label="End date"><input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></Field></div>
     <Field label="Description / Note"><textarea rows={3} value={description} onChange={e=>setDescription(e.target.value)} placeholder="Ghi chú về học kỳ..."/></Field>
     <FormActions onClose={onClose}/>
@@ -184,12 +184,12 @@ function SemesterDetail({semesterId,onBack,onSubject,reloadApp}:{semesterId:stri
 }
 
 function SubjectForm({semesterId,onClose,onSaved,initial}:{semesterId:string;onClose:()=>void;onSaved:()=>void;initial?:Subject|null}) {
-  const [code,setCode]=useState(initial?.code||''); const [name,setName]=useState(initial?.name||''); const [status,setStatus]=useState(initial?.status||'planned');
+  const [code,setCode]=useState(initial?.code||''); const [name,setName]=useState(initial?.name||''); const [status,setStatus]=useState<SubjectStatus>(initial?.status||'planned');
   const [importance,setImportance]=useState(initial?.importance||3); const [intro,setIntro]=useState(initial?.introduction||''); const [understanding,setUnderstanding]=useState(initial?.my_understanding||''); const [reason,setReason]=useState(initial?.importance_reason||''); const [note,setNote]=useState(initial?.note||'');
   const submit=async(e:FormEvent)=>{e.preventDefault();const input={id:initial?.id,semester_id:semesterId,code,name,status,importance,introduction:intro,my_understanding:understanding,importance_reason:reason,note};await call(initial?'update_subject':'create_subject',{input});onSaved();};
   return <Modal title={initial?'Edit Subject':'Add Subject'} onClose={onClose} wide><form className="form" onSubmit={submit}>
     <div className="form-grid"><Field label="Subject code"><input required value={code} onChange={e=>setCode(e.target.value)} placeholder="SWR302"/></Field><Field label="Subject name"><input required value={name} onChange={e=>setName(e.target.value)} placeholder="Software Requirements"/></Field></div>
-    <div className="form-grid"><Field label="Status"><select value={status} onChange={e=>setStatus(e.target.value)}><option value="planned">Planned</option><option value="studying">Studying</option><option value="completed">Completed</option><option value="dropped">Dropped</option></select></Field><Field label="Importance"><Stars value={importance} onChange={setImportance}/></Field></div>
+    <div className="form-grid"><Field label="Status"><select value={status} onChange={e=>setStatus(e.target.value as SubjectStatus)}><option value="planned">Planned</option><option value="studying">Studying</option><option value="completed">Completed</option><option value="dropped">Dropped</option></select></Field><Field label="Importance"><Stars value={importance} onChange={setImportance}/></Field></div>
     <Field label="Introduction"><textarea rows={3} value={intro} onChange={e=>setIntro(e.target.value)} placeholder="Môn này học về gì?"/></Field>
     <Field label="My Understanding"><textarea rows={3} value={understanding} onChange={e=>setUnderstanding(e.target.value)} placeholder="Sau khi học, chính bạn hiểu môn này như thế nào?"/></Field>
     <Field label="Why Important?"><textarea rows={2} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Vì sao môn này quan trọng với bạn?"/></Field>
@@ -247,7 +247,7 @@ function StudyNotesPanel({subject,reloadApp}:{subject:Subject;reloadApp:()=>void
 function StudyNoteForm({subject,initial,onClose,onSaved}:{subject:Subject;initial:StudyNote|null;onClose:()=>void;onSaved:()=>void}) {
   const [title,setTitle]=useState(initial?.title||''); const [week,setWeek]=useState(initial?.week?.toString()||''); const [slot,setSlot]=useState(initial?.slot?.toString()||''); const [date,setDate]=useState(initial?.study_date||'');
   const [topic,setTopic]=useState(initial?.topic||''); const [raw,setRaw]=useState(initial?.raw_note||''); const [summary,setSummary]=useState(initial?.summary||''); const [learned,setLearned]=useState(initial?.learned||''); const [unresolved,setUnresolved]=useState(initial?.unresolved||'');
-  const [mastery,setMastery]=useState(initial?.mastery||1); const [status,setStatus]=useState(initial?.status||'captured'); const [filename,setFilename]=useState(initial?.original_filename||''); const [fileBase64,setFileBase64]=useState<string|null>(null);
+  const [mastery,setMastery]=useState(initial?.mastery||1); const [status,setStatus]=useState<StudyNoteStatus>(initial?.status||'captured'); const [filename,setFilename]=useState(initial?.original_filename||''); const [fileBase64,setFileBase64]=useState<string|null>(null);
 
   const chooseFile=async(file?:File)=>{if(!file)return;setFilename(file.name);const parsed=parseStudyNoteFilename(file.name);if(parsed){setWeek(String(parsed.week));setSlot(String(parsed.slot));setDate(parsed.study_date);}if(/\.(txt|md)$/i.test(file.name)){const text=await file.text();setRaw(text);if(!title)setTitle(file.name.replace(/\.[^.]+$/,''));}setFileBase64(await fileToBase64(file));};
   const submit=async(e:FormEvent)=>{e.preventDefault();const input={id:initial?.id,subject_id:subject.id,title,week:week?Number(week):null,slot:slot?Number(slot):null,study_date:date||null,topic,raw_note:raw,summary,learned,unresolved,mastery,status,original_filename:filename||null,file_base64:fileBase64};await call(initial?'update_study_note':'add_study_note',{input});onSaved();};
@@ -258,7 +258,7 @@ function StudyNoteForm({subject,initial,onClose,onSaved}:{subject:Subject;initia
     <Field label="Raw Note"><textarea className="mono" rows={12} value={raw} onChange={e=>setRaw(e.target.value)} placeholder="Nội dung ghi trực tiếp trong buổi học..."/></Field>
     <Field label="Summary"><textarea rows={3} value={summary} onChange={e=>setSummary(e.target.value)} placeholder="Tóm tắt sau khi review..."/></Field>
     <div className="form-grid"><Field label="What I learned"><textarea rows={3} value={learned} onChange={e=>setLearned(e.target.value)}/></Field><Field label="What I don't understand"><textarea rows={3} value={unresolved} onChange={e=>setUnresolved(e.target.value)}/></Field></div>
-    <div className="form-grid"><Field label="Mastery"><Stars value={mastery} onChange={setMastery}/></Field><Field label="Status"><select value={status} onChange={e=>setStatus(e.target.value)}><option value="captured">Captured</option><option value="reviewed">Reviewed</option><option value="mastered">Mastered</option></select></Field></div>
+    <div className="form-grid"><Field label="Mastery"><Stars value={mastery} onChange={setMastery}/></Field><Field label="Status"><select value={status} onChange={e=>setStatus(e.target.value as StudyNoteStatus)}><option value="captured">Captured</option><option value="reviewed">Reviewed</option><option value="mastered">Mastered</option></select></Field></div>
     <FormActions onClose={onClose}/>
   </form></Modal>;
 }
@@ -361,9 +361,9 @@ function ResultsPanel({subject}:{subject:Subject}) {
 }
 
 function GradeSchemeForm({subject,initial,onClose,onSaved}:{subject:Subject;initial:GradeScheme|null;onClose:()=>void;onSaved:()=>void}) {
-  const [type,setType]=useState(initial?.type||'numeric');const [passing,setPassing]=useState(initial?.passing_score?.toString()||'');const [target,setTarget]=useState(initial?.target_score?.toString()||'');const [note,setNote]=useState(initial?.note||'');
+  const [type,setType]=useState<GradeType>(initial?.type||'numeric');const [passing,setPassing]=useState(initial?.passing_score?.toString()||'');const [target,setTarget]=useState(initial?.target_score?.toString()||'');const [note,setNote]=useState(initial?.note||'');
   const submit=async(e:FormEvent)=>{e.preventDefault();await call('save_grade_scheme',{input:{subject_id:subject.id,type,passing_score:passing===''?null:Number(passing),target_score:target===''?null:Number(target),note}});onSaved();};
-  return <Modal title="Grade Scheme" onClose={onClose}><form className="form" onSubmit={submit}><Field label="Type"><select value={type} onChange={e=>setType(e.target.value)}><option value="numeric">Numeric</option><option value="pass_fail">Pass / Fail</option><option value="no_grade">No Grade</option><option value="custom">Custom</option></select></Field><div className="form-grid"><Field label="Passing score"><input type="number" step="0.01" value={passing} onChange={e=>setPassing(e.target.value)}/></Field><Field label="Target score"><input type="number" step="0.01" value={target} onChange={e=>setTarget(e.target.value)}/></Field></div><Field label="Note"><textarea rows={3} value={note} onChange={e=>setNote(e.target.value)}/></Field><FormActions onClose={onClose}/></form></Modal>;
+  return <Modal title="Grade Scheme" onClose={onClose}><form className="form" onSubmit={submit}><Field label="Type"><select value={type} onChange={e=>setType(e.target.value as GradeType)}><option value="numeric">Numeric</option><option value="pass_fail">Pass / Fail</option><option value="no_grade">No Grade</option><option value="custom">Custom</option></select></Field><div className="form-grid"><Field label="Passing score"><input type="number" step="0.01" value={passing} onChange={e=>setPassing(e.target.value)}/></Field><Field label="Target score"><input type="number" step="0.01" value={target} onChange={e=>setTarget(e.target.value)}/></Field></div><Field label="Note"><textarea rows={3} value={note} onChange={e=>setNote(e.target.value)}/></Field><FormActions onClose={onClose}/></form></Modal>;
 }
 
 function GradeComponentForm({scheme,order,onClose,onSaved}:{scheme:GradeScheme;order:number;onClose:()=>void;onSaved:()=>void}) {
