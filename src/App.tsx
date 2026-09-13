@@ -5,7 +5,7 @@ import type {
   Report, ReportFile, ReportMember, SearchResult, Semester, SemesterStatus, StudyNote, StudyNoteStatus, Subject, SubjectStatus, GradeType
 } from './types';
 import { Badge, ConfirmButton, Empty, Field, Modal, Stars } from './ui';
-import { LayoutDashboard, GraduationCap, NotebookPen, BrainCircuit, Settings, BookOpen, Search, HardDrive, Sparkles, BookMarked, Files, ArrowRight, ChevronLeft, Pencil } from 'lucide-react';
+import { LayoutDashboard, GraduationCap, NotebookPen, BrainCircuit, Settings, BookOpen, Search, BookMarked, Files, ArrowRight, ChevronLeft, Pencil } from 'lucide-react';
 
 type Page = 'dashboard' | 'semesters' | 'study-notes' | 'knowledge' | 'settings';
 type SubjectTab = 'overview' | 'study-notes' | 'materials' | 'critical' | 'reports' | 'lecturer' | 'results';
@@ -54,7 +54,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><div className="brand-mark"><BookOpen size={23} strokeWidth={2.2}/></div><div><strong>My Study Hub</strong><span>Personal Learning OS</span></div></div>
+        <div className="brand"><div className="brand-mark"><BookOpen size={23} strokeWidth={2.2}/></div><div><strong>My Study Hub</strong></div></div>
         <nav>
           <NavButton active={page==='dashboard'} onClick={() => nav('dashboard')} icon={<LayoutDashboard size={18}/>}>Dashboard</NavButton>
           <NavButton active={page==='semesters'} onClick={() => nav('semesters')} icon={<GraduationCap size={18}/>}>Semesters</NavButton>
@@ -62,8 +62,6 @@ export default function App() {
           <NavButton active={page==='knowledge'} onClick={() => nav('knowledge')} icon={<BrainCircuit size={18}/>}>Knowledge Vault</NavButton>
           <NavButton active={page==='settings'} onClick={() => nav('settings')} icon={<Settings size={18}/>}>Settings</NavButton>
         </nav>
-        <div className="sidebar-callout"><div className="sidebar-callout-icon"><HardDrive size={17}/></div><div><strong>Local-first</strong><span>Your data stays on this device</span></div></div>
-        <div className="sidebar-foot"><span>Built for focused learning.</span></div>
       </aside>
 
       <main className="main">
@@ -113,18 +111,18 @@ function Dashboard({onOpenSemester,onOpenSubject}:{onOpenSemester:(id:string)=>v
   if(!data) return <div className="loading">Loading...</div>;
 
   return <>
-    <PageHeader eyebrow="PERSONAL LEARNING OS" title="Dashboard" description="A focused workspace for everything you learn, review, and want to remember." />
+    <PageHeader title="Dashboard" />
+    <MotivationalQuote />
     {!data.current_semester ? (
       <Empty title="No current semester yet" description="Create your first semester, then add the subjects you want to manage." action={<button className="btn primary" onClick={()=>onOpenSemester('')}>Create Semester</button>} />
     ) : <>
       <div className="current-banner" onClick={()=>onOpenSemester(data.current_semester!.id)}>
-        <div className="banner-copy"><span>CURRENT SEMESTER</span><h2>{data.current_semester.name}</h2><p>{data.current_semester.number!==null ? `Semester ${data.current_semester.number}` : 'Custom semester'} · {data.current_semester.description || 'Keep learning. Make this semester count.'}</p><div className="banner-link">Open semester <ArrowRight size={15}/></div></div>
-        <div className="banner-aside"><Sparkles size={20}/><strong>Build knowledge that lasts.</strong><Badge tone="green">Current</Badge></div>
+        <div className="banner-copy"><span>CURRENT SEMESTER</span><h2>{data.current_semester.name}</h2><p>{data.current_semester.number!==null ? `Semester ${data.current_semester.number}` : 'Custom semester'}{data.current_semester.description ? ` · ${data.current_semester.description}` : ''}</p><div className="banner-link">Open semester <ArrowRight size={15}/></div></div>
       </div>
       <div className="stats-grid">
         <Stat label="Semesters" value={data.semester_count}/><Stat label="Subjects" value={data.subject_count}/><Stat label="Study Notes" value={data.study_note_count}/><Stat label="Materials" value={data.material_count}/><Stat label="Critical Notes" value={data.critical_note_count}/>
       </div>
-      <SectionTitle title="Current subjects" subtitle="Subjects you are actively studying this semester" />
+      <SectionTitle title="Current subjects" />
       <div className="subject-grid">
         {data.current_subjects.map(s=><button className="subject-card" key={s.id} onClick={()=>onOpenSubject(s.id)}>
           <div className="subject-card-top"><Badge tone={statusTone(s.status)}>{statusLabel[s.status]||s.status}</Badge><Stars value={s.importance} readOnly/></div>
@@ -140,6 +138,13 @@ function Dashboard({onOpenSemester,onOpenSubject}:{onOpenSemester:(id:string)=>v
   </>;
 }
 
+function MotivationalQuote() {
+  return <blockquote className="motivation-quote" aria-label="Motivational quote">
+    <p>Everything seems impossible <span>until it’s done.</span></p>
+    <footer>— Nelson Mandela —</footer>
+  </blockquote>;
+}
+
 function Stat({label,value}:{label:string;value:number}) {
   const icon = label === 'Semesters' ? <GraduationCap size={20}/> : label === 'Subjects' ? <BookOpen size={20}/> : label === 'Study Notes' ? <NotebookPen size={20}/> : label === 'Materials' ? <Files size={20}/> : <BookMarked size={20}/>;
   return <div className="stat"><div className="stat-icon">{icon}</div><div><strong>{value}</strong><span>{label}</span></div></div>;
@@ -150,7 +155,7 @@ function Semesters({onOpen,reloadApp}:{onOpen:(id:string)=>void;reloadApp:()=>vo
   const [items,setItems]=useState<Semester[]>([]); const [show,setShow]=useState(false); const [edit,setEdit]=useState<Semester|null>(null);
   const load=()=>call<Semester[]>('list_semesters').then(setItems); useEffect(()=>{load()},[]);
   return <>
-    <PageHeader eyebrow="MANUAL SETUP" title="Semesters" description="Build your academic structure manually — exactly as your real study plan evolves." action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Semester</button>}/>
+    <PageHeader title="Semesters" action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Semester</button>}/>
     {items.length===0?<Empty title="No semesters yet" description="Nothing is preconfigured. Build your study structure exactly the way you want it." action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Semester</button>}/>:<div className="semester-list">{items.map(s=><div className="semester-card" key={s.id}>
       <button className="semester-main" onClick={()=>onOpen(s.id)}><div><span className="kicker">{s.number!==null?`TERM ${s.number}`:'CUSTOM TERM'}</span><h2>{s.name}</h2><p>{s.description||'No description'}</p></div><Badge tone={statusTone(s.status)}>{statusLabel[s.status]}</Badge></button>
       <div className="row-actions"><button className="btn ghost small" onClick={()=>{setEdit(s);setShow(true)}}>Edit</button><ConfirmButton onConfirm={async()=>{await call('delete_semester',{id:s.id});load();reloadApp();}}>Delete</ConfirmButton></div>
@@ -179,7 +184,7 @@ function SemesterDetail({semesterId,onBack,onSubject,reloadApp}:{semesterId:stri
   if(!semester)return <div className="loading">Loading...</div>;
   return <>
     <button className="back" onClick={onBack}><ChevronLeft size={16}/> All semesters</button>
-    <PageHeader eyebrow={semester.number!==null?`TERM ${semester.number}`:'CUSTOM TERM'} title={semester.name} description={semester.description||'Manage the subjects in this semester.'} action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Subject</button>}/>
+    <PageHeader eyebrow={semester.number!==null?`TERM ${semester.number}`:undefined} title={semester.name} description={semester.description||undefined} action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Subject</button>}/>
     <div className="semester-meta"><Badge tone={statusTone(semester.status)}>{statusLabel[semester.status]}</Badge>{semester.start_date&&<span>{formatDate(semester.start_date)}</span>}{semester.end_date&&<span>→ {formatDate(semester.end_date)}</span>}</div>
     {subjects.length===0?<Empty title="No subjects yet" description="Subjects are fully manual too. Add only the courses you actually want to track." action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Subject</button>}/>:<div className="subject-grid">{subjects.map(s=><button className="subject-card" key={s.id} onClick={()=>onSubject(s.id)}>
       <div className="subject-card-top"><Badge tone={statusTone(s.status)}>{statusLabel[s.status]}</Badge><Stars value={s.importance} readOnly/></div><strong>{s.code}</strong><h3>{s.name}</h3><p className="clamp">{s.introduction||s.my_understanding||'No introduction yet.'}</p>
@@ -235,7 +240,7 @@ function StudyNotesPanel({subject,reloadApp}:{subject:Subject;reloadApp:()=>void
   const [items,setItems]=useState<StudyNote[]>([]); const [show,setShow]=useState(false); const [edit,setEdit]=useState<StudyNote|null>(null);
   const load=()=>call<StudyNote[]>('list_study_notes',{subjectId:subject.id}).then(setItems); useEffect(()=>{load()},[subject.id]);
   return <div>
-    <SectionTitle title="Study Notes" subtitle="Capture each study session in detail, then review it and extract the knowledge worth keeping." action={<button className="btn primary" onClick={()=>setShow(true)}>+ Capture Study Note</button>}/>
+    <SectionTitle title="Study Notes" action={<button className="btn primary" onClick={()=>setShow(true)}>+ Capture Study Note</button>}/>
     {items.length===0?<Empty title="No study notes yet" description="Create a note manually or import a file using the WWSS-DDMMYY.txt naming convention." action={<button className="btn primary" onClick={()=>setShow(true)}>+ Capture Study Note</button>}/>:<div className="timeline">{items.map(n=><article className="timeline-item" key={n.id}>
       <div className="timeline-marker"/><div className="timeline-card">
         <div className="card-head"><div><span className="kicker">{n.week?`WEEK ${String(n.week).padStart(2,'0')}`:'NO WEEK'}{n.slot?` · SLOT ${String(n.slot).padStart(2,'0')}`:''}</span><h3>{n.title}</h3><p>{n.study_date?formatDate(n.study_date):'No date'}{n.topic?` · ${n.topic}`:''}</p></div><div className="card-actions"><Badge tone={statusTone(n.status)}>{statusLabel[n.status]}</Badge><button className="btn ghost small" onClick={()=>{setEdit(n);setShow(true)}}>Edit</button><ConfirmButton onConfirm={async()=>{await call('delete_study_note',{id:n.id});load();reloadApp();}}>Delete</ConfirmButton></div></div>
@@ -271,7 +276,7 @@ function StudyNoteForm({subject,initial,onClose,onSaved}:{subject:Subject;initia
 function MaterialsPanel({subject,reloadApp}:{subject:Subject;reloadApp:()=>void}) {
   const [items,setItems]=useState<Material[]>([]); const [show,setShow]=useState(false);
   const load=()=>call<Material[]>('list_materials',{subjectId:subject.id}).then(setItems); useEffect(()=>{load()},[subject.id]);
-  return <div><SectionTitle title="Materials" subtitle="Keep slides, source code, templates, guides, references, and useful links in one place." action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Material</button>}/>
+  return <div><SectionTitle title="Materials" action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Material</button>}/>
     {items.length===0?<Empty title="No materials yet" description="Store a local file or save an external link."/>:<div className="resource-list">{items.map(m=><article className="resource" key={m.id}><div className="file-icon">{fileIcon(m.type)}</div><div className="resource-main"><div className="resource-title"><strong>{m.title}</strong><Stars value={m.importance} readOnly/></div><span>{m.type} · {m.storage_type==='file'?(m.original_filename||'Local file'):'External link'}</span>{m.description&&<p>{m.description}</p>}{m.external_url&&<a href={m.external_url} target="_blank" rel="noreferrer">Open link ↗</a>}{m.stored_path&&isNative()&&<button className="btn ghost small" onClick={()=>call('open_local_file',{path:m.stored_path})}>Open file</button>}</div><ConfirmButton onConfirm={async()=>{await call('delete_material',{id:m.id});load();reloadApp();}}>Delete</ConfirmButton></article>)}</div>}
     {show&&<MaterialForm subject={subject} onClose={()=>setShow(false)} onSaved={()=>{setShow(false);load();reloadApp()}}/>}
   </div>;
@@ -289,7 +294,7 @@ function MaterialForm({subject,onClose,onSaved}:{subject:Subject;onClose:()=>voi
 function CriticalPanel({subject,reloadApp}:{subject:Subject;reloadApp:()=>void}) {
   const [items,setItems]=useState<CriticalNote[]>([]);const [show,setShow]=useState(false);const [studyNotes,setStudyNotes]=useState<StudyNote[]>([]);
   const load=async()=>{setItems(await call<CriticalNote[]>('list_critical_notes',{subjectId:subject.id}));setStudyNotes(await call<StudyNote[]>('list_study_notes',{subjectId:subject.id}));};useEffect(()=>{load()},[subject.id]);
-  return <div><SectionTitle title="Critical Notes" subtitle="Keep only the knowledge you truly do not want to forget." action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Critical Note</button>}/>
+  return <div><SectionTitle title="Critical Notes" action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Critical Note</button>}/>
     {items.length===0?<Empty title="No critical notes yet" description="After reviewing a Study Note, extract the most important knowledge here."/>:<div className="knowledge-grid">{items.map(n=><article className={`knowledge-card ${n.is_pinned?'pinned':''}`} key={n.id}><div className="card-head"><div><span className="kicker">{n.is_pinned?'PINNED':'CRITICAL KNOWLEDGE'}</span><h3>{n.title}</h3></div><Stars value={n.importance} readOnly/></div><p className="prewrap">{n.content}</p>{n.why_it_matters&&<div className="why"><strong>Why it matters</strong><p>{n.why_it_matters}</p></div>}<ConfirmButton onConfirm={async()=>{await call('delete_critical_note',{id:n.id});load();reloadApp();}}>Delete</ConfirmButton></article>)}</div>}
     {show&&<CriticalForm subject={subject} studyNotes={studyNotes} onClose={()=>setShow(false)} onSaved={()=>{setShow(false);load();reloadApp()}}/>}
   </div>;
@@ -304,7 +309,7 @@ function CriticalForm({subject,studyNotes,onClose,onSaved}:{subject:Subject;stud
 function ReportsPanel({subject,reloadApp}:{subject:Subject;reloadApp:()=>void}) {
   const [items,setItems]=useState<Report[]>([]);const [show,setShow]=useState(false);const [expanded,setExpanded]=useState<string|null>(null);
   const load=()=>call<Report[]>('list_reports',{subjectId:subject.id}).then(setItems);useEffect(()=>{load()},[subject.id]);
-  return <div><SectionTitle title="Reports / Projects" subtitle="Track reports, assignments, projects, team members, and submission files for this subject." action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Report</button>}/>
+  return <div><SectionTitle title="Reports / Projects" action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Report</button>}/>
     {items.length===0?<Empty title="No reports or projects yet" description="Create a report or project whenever the subject has a group task or submission."/>:<div className="report-list">{items.map(r=><article className="report-card" key={r.id}><div className="card-head"><div><Badge tone={statusTone(r.status)}>{statusLabel[r.status]||r.status}</Badge><h3>{r.title}</h3><span>{r.type}{r.deadline?` · Deadline ${formatDate(r.deadline)}`:''}</span></div><div className="card-actions"><button className="btn ghost small" onClick={()=>setExpanded(expanded===r.id?null:r.id)}>{expanded===r.id?'Close':'Open'}</button><ConfirmButton onConfirm={async()=>{await call('delete_report',{id:r.id});load();reloadApp();}}>Delete</ConfirmButton></div></div>{r.description&&<p>{r.description}</p>}{expanded===r.id&&<ReportDetail report={r}/>}</article>)}</div>}
     {show&&<ReportForm subject={subject} onClose={()=>setShow(false)} onSaved={()=>{setShow(false);load();reloadApp()}}/>}
   </div>;
@@ -340,7 +345,7 @@ function ReportFileForm({report,onClose,onSaved}:{report:Report;onClose:()=>void
 function LecturerPanel({subject}:{subject:Subject}) {
   const [items,setItems]=useState<Lecturer[]>([]);const [show,setShow]=useState(false);
   const load=()=>call<Lecturer[]>('list_lecturers',{subjectId:subject.id}).then(setItems);useEffect(()=>{load()},[subject.id]);
-  return <div><SectionTitle title="Lecturers" subtitle="Keep lecturer details so you can remember who taught the subject and how they worked." action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Lecturer</button>}/>
+  return <div><SectionTitle title="Lecturers" action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Lecturer</button>}/>
     {items.length===0?<Empty title="No lecturers yet" description="Add one or more lecturers for this subject."/>:<div className="people-grid">{items.map(l=><article className="person-card" key={l.id}><div className="avatar">{initials(l.name)}</div><div><span className="kicker">{l.role||'LECTURER'}</span><h3>{l.name}</h3>{l.email&&<a href={`mailto:${l.email}`}>{l.email}</a>}{l.phone&&<p>{l.phone}</p>}{l.contact&&<p>{l.contact}</p>}{l.note&&<div className="why"><strong>My note</strong><p>{l.note}</p></div>}</div><ConfirmButton onConfirm={async()=>{await call('delete_lecturer',{id:l.id});load();}}>Delete</ConfirmButton></article>)}</div>}
     {show&&<LecturerForm subject={subject} onClose={()=>setShow(false)} onSaved={()=>{setShow(false);load()}}/>}
   </div>;
@@ -356,7 +361,7 @@ function ResultsPanel({subject}:{subject:Subject}) {
   const [scheme,setScheme]=useState<GradeScheme|null>(null);const [components,setComponents]=useState<GradeComponent[]>([]);const [showScheme,setShowScheme]=useState(false);const [showComponent,setShowComponent]=useState(false);
   const load=async()=>{const d=await call<{scheme:GradeScheme|null;components:GradeComponent[]}>('get_grade_scheme',{subjectId:subject.id});setScheme(d.scheme);setComponents(d.components);};useEffect(()=>{load()},[subject.id]);
   const weighted=useMemo(()=>{if(!scheme||scheme.type!=='numeric')return null;let totalWeight=0,earned=0;components.forEach(c=>{if(c.score!==null&&c.score!==undefined&&c.weight!==null&&c.weight!==undefined){totalWeight+=c.weight;earned+=(c.score/c.max_score)*c.weight;}});return {totalWeight,earned,current:totalWeight?earned/totalWeight*10:null};},[scheme,components]);
-  return <div><SectionTitle title="Results" subtitle="Configure grading independently for each subject: Numeric, Pass / Fail, No Grade, or Custom." action={<button className="btn primary" onClick={()=>setShowScheme(true)}>{scheme?'Edit Scheme':'Create Scheme'}</button>}/>
+  return <div><SectionTitle title="Results" action={<button className="btn primary" onClick={()=>setShowScheme(true)}>{scheme?'Edit Scheme':'Create Scheme'}</button>}/>
     {!scheme?<Empty title="No grade scheme yet" description="If this subject is not graded, choose No Grade."/>:<>
       <div className="grade-summary"><div><span>GRADE TYPE</span><strong>{scheme.type.replace('_',' ').toUpperCase()}</strong></div>{weighted&&<><div><span>RECORDED WEIGHT</span><strong>{weighted.totalWeight}%</strong></div><div><span>CURRENT SCORE</span><strong>{weighted.current?.toFixed(2)??'—'}</strong></div></>}{scheme.target_score!=null&&<div><span>TARGET</span><strong>{scheme.target_score}</strong></div>}</div>
       {scheme.type==='numeric'&&<><div className="subhead"><h3>Grade components</h3><button className="btn ghost" onClick={()=>setShowComponent(true)}>+ Component</button></div>{components.length===0?<SmallEmpty text="No grade components yet."/>:<div className="grade-table"><div className="grade-row header"><span>Component</span><span>Weight</span><span>Score</span><span>Max</span><span/></div>{components.map(c=><div className="grade-row" key={c.id}><strong>{c.name}</strong><span>{c.weight??'—'}%</span><input type="number" step="0.01" min="0" max={c.max_score} value={c.score??''} onChange={async e=>{await call('update_grade_component',{input:{id:c.id,score:e.target.value===''?null:Number(e.target.value)}});load()}}/><span>{c.max_score}</span><button className="icon-btn" onClick={async()=>{await call('delete_grade_component',{id:c.id});load()}}>×</button></div>)}</div>}</>}
@@ -380,13 +385,13 @@ function GradeComponentForm({scheme,order,onClose,onSaved}:{scheme:GradeScheme;o
 function GlobalStudyNotes({onSubject,reloadApp}:{onSubject:(id:string)=>void;reloadApp:()=>void}) {
   const [items,setItems]=useState<StudyNote[]>([]);const [q,setQ]=useState('');const load=()=>call<StudyNote[]>('list_study_notes',{}).then(setItems);useEffect(()=>{load()},[]);
   const filtered=items.filter(n=>`${n.title} ${n.topic||''} ${n.raw_note} ${n.subject_code||''}`.toLowerCase().includes(q.toLowerCase()));
-  return <><PageHeader eyebrow="ALL SUBJECTS" title="Study Notes" description="Browse every recorded study session across all subjects from one place."/><div className="toolbar"><input className="filter" placeholder="Filter notes..." value={q} onChange={e=>setQ(e.target.value)}/></div>{filtered.length===0?<Empty title="No matching study notes"/>:<div className="list-card">{filtered.map(n=><NoteRow key={n.id} note={n} onClick={()=>onSubject(n.subject_id)}/>)}</div>}</>;
+  return <><PageHeader title="Study Notes"/><div className="toolbar"><input className="filter" placeholder="Filter notes..." value={q} onChange={e=>setQ(e.target.value)}/></div>{filtered.length===0?<Empty title="No matching study notes"/>:<div className="list-card">{filtered.map(n=><NoteRow key={n.id} note={n} onClick={()=>onSubject(n.subject_id)}/>)}</div>}</>;
 }
 
 function KnowledgeVault({onSubject,reloadApp}:{onSubject:(id:string)=>void;reloadApp:()=>void}) {
   const [items,setItems]=useState<CriticalNote[]>([]);const [q,setQ]=useState('');const load=()=>call<CriticalNote[]>('list_critical_notes',{}).then(setItems);useEffect(()=>{load()},[]);
   const filtered=items.filter(n=>`${n.title} ${n.content} ${n.why_it_matters||''} ${n.subject_code||''}`.toLowerCase().includes(q.toLowerCase()));
-  return <><PageHeader eyebrow="LONG-TERM MEMORY" title="Knowledge Vault" description="Your curated long-term memory: only the knowledge you decided is worth keeping."/><div className="toolbar"><input className="filter" placeholder="Search knowledge..." value={q} onChange={e=>setQ(e.target.value)}/></div>{filtered.length===0?<Empty title="Knowledge Vault is empty"/>:<div className="knowledge-grid">{filtered.map(n=><button className={`knowledge-card clickable ${n.is_pinned?'pinned':''}`} key={n.id} onClick={()=>onSubject(n.subject_id)}><div className="card-head"><div><span className="kicker">{n.subject_code||'SUBJECT'}</span><h3>{n.title}</h3></div><Stars value={n.importance} readOnly/></div><p className="prewrap">{n.content}</p>{n.why_it_matters&&<div className="why"><strong>Why it matters</strong><p>{n.why_it_matters}</p></div>}</button>)}</div>}</>;
+  return <><PageHeader title="Knowledge Vault"/><div className="toolbar"><input className="filter" placeholder="Search knowledge..." value={q} onChange={e=>setQ(e.target.value)}/></div>{filtered.length===0?<Empty title="Knowledge Vault is empty"/>:<div className="knowledge-grid">{filtered.map(n=><button className={`knowledge-card clickable ${n.is_pinned?'pinned':''}`} key={n.id} onClick={()=>onSubject(n.subject_id)}><div className="card-head"><div><span className="kicker">{n.subject_code||'SUBJECT'}</span><h3>{n.title}</h3></div><Stars value={n.importance} readOnly/></div><p className="prewrap">{n.content}</p>{n.why_it_matters&&<div className="why"><strong>Why it matters</strong><p>{n.why_it_matters}</p></div>}</button>)}</div>}</>;
 }
 
 function SettingsPage({reloadApp}:{reloadApp:()=>void}) {
@@ -404,7 +409,7 @@ function SettingsPage({reloadApp}:{reloadApp:()=>void}) {
     }
   };
   const restore=async(file?:File)=>{if(!file)return;setMessage('Restoring...');if(isNative()){const b64=await fileToBase64(file);await call('restore_backup',{base64Data:b64});}else{const text=await file.text();await call('import_json',{jsonText:text});}setMessage('Restore completed. Reloading data...');reloadApp();};
-  return <><PageHeader eyebrow="LOCAL DATA" title="Settings" description="No account and no cloud dependency. Your data stays on this computer, so regular backups matter."/>
+  return <><PageHeader title="Settings"/>
     <div className="settings-grid"><article className="panel"><h3>Storage</h3><p>{info?.mode==='native'?'Native desktop + SQLite':'Browser preview + localStorage'}</p><code>{info?.data_dir||'Loading...'}</code>{isNative()&&<button className="btn ghost" onClick={()=>call('open_data_folder')}>Open data folder</button>}</article>
     <article className="panel"><h3>Backup</h3><p>{isNative()?'Create a ZIP containing the SQLite database and all locally stored files.':'Export the browser preview data as JSON.'}</p><button className="btn primary" onClick={backup}>Create Backup</button></article>
     <article className="panel"><h3>Restore</h3><p>Restore your workspace from a previous backup.</p><input type="file" accept={isNative()?'.zip':'application/json,.json'} onChange={e=>restore(e.target.files?.[0])}/></article>
@@ -413,7 +418,7 @@ function SettingsPage({reloadApp}:{reloadApp:()=>void}) {
   </>;
 }
 
-function PageHeader({eyebrow,title,description,action}:{eyebrow:string;title:string;description?:string;action?:ReactNode}) {return <div className="page-head"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1>{description&&<p>{description}</p>}</div>{action}</div>;}
+function PageHeader({eyebrow,title,description,action}:{eyebrow?:string;title:string;description?:string;action?:ReactNode}) {return <div className="page-head"><div>{eyebrow&&<span className="eyebrow">{eyebrow}</span>}<h1>{title}</h1>{description&&<p>{description}</p>}</div>{action}</div>;}
 function SectionTitle({title,subtitle,action}:{title:string;subtitle?:string;action?:ReactNode}) {return <div className="section-title"><div><h2>{title}</h2>{subtitle&&<p>{subtitle}</p>}</div>{action}</div>;}
 function FormActions({onClose}:{onClose:()=>void}) {return <div className="form-actions"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" type="submit">Save</button></div>;}
 function SmallEmpty({text}:{text:string}) {return <div className="small-empty">{text}</div>;}
