@@ -100,3 +100,19 @@ Two workflows are included:
 - `.github/workflows/release-windows.yml` — creates a GitHub Release when you push a `v*` tag.
 
 See `GITHUB_BUILD.md` for the full process.
+
+
+## Study Projects — v2.4.0
+
+Study Projects are independent from semesters and subjects. Use them for self-directed learning topics such as RAG, Docker, System Design, React, or any other area you want to explore.
+
+Each project includes:
+
+- Overview and learning motivation
+- Learning Roadmap
+- Project Study Notes
+- Resources (local files or links)
+- Experiments
+- Project Knowledge
+
+Project notes also appear in the global Study Notes screen, and project knowledge appears in Knowledge Vault. All project data is stored locally in SQLite and included in backups.
