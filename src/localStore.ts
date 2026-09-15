@@ -9,9 +9,15 @@ import type {
   Report,
   ReportFile,
   ReportMember,
+  ProjectExperiment,
+  ProjectKnowledge,
+  ProjectNote,
+  ProjectResource,
+  ProjectStage,
   SearchResult,
   Semester,
   StudyNote,
+  StudyProject,
   Subject,
 } from './types';
 
@@ -27,6 +33,12 @@ type LocalDb = {
   report_files: ReportFile[];
   grade_schemes: GradeScheme[];
   grade_components: GradeComponent[];
+  study_projects: StudyProject[];
+  project_stages: ProjectStage[];
+  project_notes: ProjectNote[];
+  project_resources: ProjectResource[];
+  project_experiments: ProjectExperiment[];
+  project_knowledge: ProjectKnowledge[];
 };
 
 const KEY = 'my-study-hub-local-v2';
@@ -43,6 +55,12 @@ const emptyDb = (): LocalDb => ({
   report_files: [],
   grade_schemes: [],
   grade_components: [],
+  study_projects: [],
+  project_stages: [],
+  project_notes: [],
+  project_resources: [],
+  project_experiments: [],
+  project_knowledge: [],
 });
 
 function load(): LocalDb {
@@ -357,6 +375,151 @@ export async function localCommand<T>(command: string, args: Record<string, any>
     case 'delete_grade_component':
       db.grade_components = db.grade_components.filter(x => x.id !== args.id); save(db); return true as T;
 
+    case 'list_study_projects': {
+      const items = db.study_projects.map(project => ({
+        ...project,
+        stage_count: db.project_stages.filter(x => x.project_id === project.id).length,
+        completed_stage_count: db.project_stages.filter(x => x.project_id === project.id && x.status === 'completed').length,
+        note_count: db.project_notes.filter(x => x.project_id === project.id).length,
+        resource_count: db.project_resources.filter(x => x.project_id === project.id).length,
+        experiment_count: db.project_experiments.filter(x => x.project_id === project.id).length,
+        knowledge_count: db.project_knowledge.filter(x => x.project_id === project.id).length,
+      }));
+      return [...items].sort((a,b) => {
+        const order: Record<string, number> = { active: 0, idea: 1, paused: 2, completed: 3 };
+        return (order[a.status] ?? 9) - (order[b.status] ?? 9) || b.updated_at.localeCompare(a.updated_at);
+      }) as T;
+    }
+
+    case 'get_study_project': {
+      const project = db.study_projects.find(x => x.id === args.id);
+      if (!project) throw new Error('Study project not found');
+      return {
+        ...project,
+        stage_count: db.project_stages.filter(x => x.project_id === project.id).length,
+        completed_stage_count: db.project_stages.filter(x => x.project_id === project.id && x.status === 'completed').length,
+        note_count: db.project_notes.filter(x => x.project_id === project.id).length,
+        resource_count: db.project_resources.filter(x => x.project_id === project.id).length,
+        experiment_count: db.project_experiments.filter(x => x.project_id === project.id).length,
+        knowledge_count: db.project_knowledge.filter(x => x.project_id === project.id).length,
+      } as T;
+    }
+
+    case 'create_study_project': {
+      const input = args.input;
+      const item: StudyProject = {
+        id: id(), title: input.title.trim(), subtitle: input.subtitle || null,
+        description: input.description || null, why_learning: input.why_learning || null,
+        status: input.status || 'idea', importance: input.importance ?? 3,
+        start_date: input.start_date || null, target_date: input.target_date || null,
+        created_at: now(), updated_at: now(),
+      };
+      db.study_projects.push(item); save(db); return item as T;
+    }
+
+    case 'update_study_project': {
+      const input = args.input;
+      const item = db.study_projects.find(x => x.id === input.id);
+      if (!item) throw new Error('Study project not found');
+      Object.assign(item, input, { updated_at: now() }); save(db); return item as T;
+    }
+
+    case 'delete_study_project': {
+      const projectId = args.id;
+      db.study_projects = db.study_projects.filter(x => x.id !== projectId);
+      db.project_stages = db.project_stages.filter(x => x.project_id !== projectId);
+      db.project_notes = db.project_notes.filter(x => x.project_id !== projectId);
+      db.project_resources = db.project_resources.filter(x => x.project_id !== projectId);
+      db.project_experiments = db.project_experiments.filter(x => x.project_id !== projectId);
+      db.project_knowledge = db.project_knowledge.filter(x => x.project_id !== projectId);
+      save(db); return true as T;
+    }
+
+    case 'list_project_stages':
+      return db.project_stages.filter(x => x.project_id === args.projectId).sort((a,b) => a.sort_order-b.sort_order || a.created_at.localeCompare(b.created_at)) as T;
+
+    case 'add_project_stage': {
+      const input = args.input;
+      const item: ProjectStage = { id:id(), project_id:input.project_id, title:input.title, description:input.description||null, status:input.status||'planned', sort_order:input.sort_order??0, created_at:now(), updated_at:now() };
+      db.project_stages.push(item); save(db); return item as T;
+    }
+
+    case 'update_project_stage': {
+      const input = args.input; const item = db.project_stages.find(x => x.id === input.id);
+      if (!item) throw new Error('Project stage not found'); Object.assign(item,input,{updated_at:now()}); save(db); return item as T;
+    }
+
+    case 'delete_project_stage':
+      db.project_stages = db.project_stages.filter(x => x.id !== args.id); save(db); return true as T;
+
+    case 'list_project_notes': {
+      const projectId = args.projectId ?? null;
+      const items = (projectId ? db.project_notes.filter(x => x.project_id === projectId) : db.project_notes).map(n => ({
+        ...n,
+        project_title: db.study_projects.find(x => x.id === n.project_id)?.title,
+        stage_title: n.stage_id ? db.project_stages.find(x => x.id === n.stage_id)?.title || null : null,
+      }));
+      return [...items].sort((a,b) => (b.study_date||b.created_at).localeCompare(a.study_date||a.created_at)) as T;
+    }
+
+    case 'add_project_note': {
+      const input = args.input;
+      const item: ProjectNote = { id:id(), project_id:input.project_id, stage_id:input.stage_id||null, title:input.title, study_date:input.study_date||null, topic:input.topic||null, raw_note:input.raw_note||'', summary:input.summary||null, learned:input.learned||null, unresolved:input.unresolved||null, mastery:input.mastery??1, status:input.status||'captured', created_at:now(), updated_at:now() };
+      db.project_notes.push(item); save(db); return item as T;
+    }
+
+    case 'update_project_note': {
+      const input = args.input; const item = db.project_notes.find(x => x.id === input.id);
+      if (!item) throw new Error('Project note not found'); Object.assign(item,input,{updated_at:now()}); save(db); return item as T;
+    }
+
+    case 'delete_project_note':
+      db.project_notes = db.project_notes.filter(x => x.id !== args.id); db.project_knowledge.forEach(x => { if (x.project_note_id === args.id) x.project_note_id = null; }); save(db); return true as T;
+
+    case 'list_project_resources':
+      return sortByCreated(db.project_resources.filter(x => x.project_id === args.projectId)) as T;
+
+    case 'add_project_resource': {
+      const input = args.input;
+      const item: ProjectResource = { id:id(), project_id:input.project_id, stage_id:input.stage_id||null, title:input.title, type:input.type||'Other', description:input.description||null, importance:input.importance??3, status:input.status||'saved', storage_type:input.storage_type, stored_path:input.original_filename?`[browser:${input.original_filename}]`:null, external_url:input.external_url||null, original_filename:input.original_filename||null, created_at:now() };
+      db.project_resources.push(item); save(db); return item as T;
+    }
+
+    case 'delete_project_resource':
+      db.project_resources = db.project_resources.filter(x => x.id !== args.id); save(db); return true as T;
+
+    case 'list_project_experiments':
+      return sortByCreated(db.project_experiments.filter(x => x.project_id === args.projectId)) as T;
+
+    case 'add_project_experiment': {
+      const input = args.input;
+      const item: ProjectExperiment = { id:id(), project_id:input.project_id, stage_id:input.stage_id||null, title:input.title, question:input.question||null, setup:input.setup||null, result:input.result||null, conclusion:input.conclusion||null, code_reference:input.code_reference||null, status:input.status||'planned', created_at:now(), updated_at:now() };
+      db.project_experiments.push(item); save(db); return item as T;
+    }
+
+    case 'update_project_experiment': {
+      const input = args.input; const item = db.project_experiments.find(x => x.id === input.id);
+      if (!item) throw new Error('Experiment not found'); Object.assign(item,input,{updated_at:now()}); save(db); return item as T;
+    }
+
+    case 'delete_project_experiment':
+      db.project_experiments = db.project_experiments.filter(x => x.id !== args.id); save(db); return true as T;
+
+    case 'list_project_knowledge': {
+      const projectId = args.projectId ?? null;
+      const items = (projectId ? db.project_knowledge.filter(x => x.project_id === projectId) : db.project_knowledge).map(n => ({ ...n, project_title: db.study_projects.find(x => x.id === n.project_id)?.title }));
+      return [...items].sort((a,b) => Number(b.is_pinned)-Number(a.is_pinned) || b.importance-a.importance || b.created_at.localeCompare(a.created_at)) as T;
+    }
+
+    case 'add_project_knowledge': {
+      const input = args.input;
+      const item: ProjectKnowledge = { id:id(), project_id:input.project_id, project_note_id:input.project_note_id||null, title:input.title, content:input.content, why_it_matters:input.why_it_matters||null, importance:input.importance??3, is_pinned:!!input.is_pinned, created_at:now(), updated_at:now() };
+      db.project_knowledge.push(item); save(db); return item as T;
+    }
+
+    case 'delete_project_knowledge':
+      db.project_knowledge = db.project_knowledge.filter(x => x.id !== args.id); save(db); return true as T;
+
     case 'dashboard': {
       const current = db.semesters.find(x => x.status === 'current') || null;
       const currentSubjects = current ? db.subjects.filter(x => x.semester_id === current.id) : [];
@@ -374,6 +537,11 @@ export async function localCommand<T>(command: string, args: Record<string, any>
         study_note_count: db.study_notes.length,
         material_count: db.materials.length,
         critical_note_count: db.critical_notes.length,
+        project_count: db.study_projects.length,
+        active_projects: db.study_projects.filter(p => p.status === 'active').map(project => {
+          const stages = db.project_stages.filter(x => x.project_id === project.id);
+          return { ...project, stage_count: stages.length, completed_stage_count: stages.filter(x => x.status === 'completed').length, note_count: db.project_notes.filter(x => x.project_id === project.id).length, resource_count: db.project_resources.filter(x => x.project_id === project.id).length, experiment_count: db.project_experiments.filter(x => x.project_id === project.id).length, knowledge_count: db.project_knowledge.filter(x => x.project_id === project.id).length };
+        }).slice(0,4),
         current_subjects: enhanced,
         recent_notes: allNotes.slice(0, 6),
         need_review: allNotes.filter(n => n.status !== 'mastered' || n.mastery < 4).slice(0, 6),
@@ -391,11 +559,16 @@ export async function localCommand<T>(command: string, args: Record<string, any>
       db.critical_notes.forEach(x => { if (`${x.title} ${x.content} ${x.why_it_matters||''}`.toLowerCase().includes(q)) out.push({kind:'critical_note',id:x.id,subject_id:x.subject_id,title:x.title,subtitle:'Critical note'}); });
       db.materials.forEach(x => { if (`${x.title} ${x.type} ${x.description||''}`.toLowerCase().includes(q)) out.push({kind:'material',id:x.id,subject_id:x.subject_id,title:x.title,subtitle:x.type}); });
       db.reports.forEach(x => { if (`${x.title} ${x.description||''} ${x.note||''}`.toLowerCase().includes(q)) out.push({kind:'report',id:x.id,subject_id:x.subject_id,title:x.title,subtitle:x.type}); });
+      db.study_projects.forEach(x => { if (`${x.title} ${x.subtitle||''} ${x.description||''} ${x.why_learning||''}`.toLowerCase().includes(q)) out.push({kind:'study_project',id:x.id,project_id:x.id,title:x.title,subtitle:x.subtitle||x.status}); });
+      db.project_notes.forEach(x => { if (`${x.title} ${x.topic||''} ${x.raw_note} ${x.summary||''}`.toLowerCase().includes(q)) out.push({kind:'project_note',id:x.id,project_id:x.project_id,title:x.title,subtitle:'Project note'}); });
+      db.project_knowledge.forEach(x => { if (`${x.title} ${x.content} ${x.why_it_matters||''}`.toLowerCase().includes(q)) out.push({kind:'project_knowledge',id:x.id,project_id:x.project_id,title:x.title,subtitle:'Project knowledge'}); });
+      db.project_resources.forEach(x => { if (`${x.title} ${x.type} ${x.description||''}`.toLowerCase().includes(q)) out.push({kind:'project_resource',id:x.id,project_id:x.project_id,title:x.title,subtitle:x.type}); });
+      db.project_experiments.forEach(x => { if (`${x.title} ${x.question||''} ${x.setup||''} ${x.result||''} ${x.conclusion||''}`.toLowerCase().includes(q)) out.push({kind:'project_experiment',id:x.id,project_id:x.project_id,title:x.title,subtitle:'Experiment'}); });
       return out.slice(0, 50) as T;
     }
 
     case 'export_json': {
-      const payload = JSON.stringify({ version: 2, exported_at: now(), data: db }, null, 2);
+      const payload = JSON.stringify({ version: 3, exported_at: now(), data: db }, null, 2);
       return payload as T;
     }
 

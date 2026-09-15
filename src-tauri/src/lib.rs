@@ -207,13 +207,101 @@ fn init_db(app: &AppHandle) -> Result<(), String> {
       score REAL,
       sort_order INTEGER NOT NULL DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS study_projects (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      subtitle TEXT,
+      description TEXT,
+      why_learning TEXT,
+      status TEXT NOT NULL CHECK(status IN ('idea','active','paused','completed')),
+      importance INTEGER NOT NULL DEFAULT 3 CHECK(importance BETWEEN 1 AND 5),
+      start_date TEXT,
+      target_date TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS project_stages (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES study_projects(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL CHECK(status IN ('planned','in_progress','completed')),
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_stages_project ON project_stages(project_id);
+
+    CREATE TABLE IF NOT EXISTS project_notes (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES study_projects(id) ON DELETE CASCADE,
+      stage_id TEXT REFERENCES project_stages(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      study_date TEXT,
+      topic TEXT,
+      raw_note TEXT NOT NULL DEFAULT '',
+      summary TEXT,
+      learned TEXT,
+      unresolved TEXT,
+      mastery INTEGER NOT NULL DEFAULT 1 CHECK(mastery BETWEEN 1 AND 5),
+      status TEXT NOT NULL DEFAULT 'captured' CHECK(status IN ('captured','reviewed','mastered')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_notes_project ON project_notes(project_id);
+
+    CREATE TABLE IF NOT EXISTS project_resources (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES study_projects(id) ON DELETE CASCADE,
+      stage_id TEXT REFERENCES project_stages(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      type TEXT NOT NULL,
+      description TEXT,
+      importance INTEGER NOT NULL DEFAULT 3 CHECK(importance BETWEEN 1 AND 5),
+      status TEXT NOT NULL CHECK(status IN ('saved','reading','completed')),
+      storage_type TEXT NOT NULL CHECK(storage_type IN ('file','link')),
+      stored_path TEXT,
+      external_url TEXT,
+      original_filename TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS project_experiments (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES study_projects(id) ON DELETE CASCADE,
+      stage_id TEXT REFERENCES project_stages(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      question TEXT,
+      setup TEXT,
+      result TEXT,
+      conclusion TEXT,
+      code_reference TEXT,
+      status TEXT NOT NULL CHECK(status IN ('planned','running','completed')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS project_knowledge (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES study_projects(id) ON DELETE CASCADE,
+      project_note_id TEXT REFERENCES project_notes(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      why_it_matters TEXT,
+      importance INTEGER NOT NULL DEFAULT 3 CHECK(importance BETWEEN 1 AND 5),
+      is_pinned INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   "#).map_err(|e| e.to_string())?;
 
   // Database migration foundation. Keep this identifier and app-data location stable
   // so future Setup upgrades can migrate data in-place instead of replacing it.
   let schema_version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-  if schema_version < 1 {
-    c.pragma_update(None, "user_version", 1).map_err(|e| e.to_string())?;
+  if schema_version < 2 {
+    c.pragma_update(None, "user_version", 2).map_err(|e| e.to_string())?;
   }
 
   Ok(())
@@ -238,6 +326,28 @@ fn subject_file_dir(app: &AppHandle, subject_id: &str, category: &str) -> Result
 fn save_base64_file(app: &AppHandle, subject_id: &str, category: &str, filename: &str, data: &str) -> Result<String, String> {
   let bytes = B64.decode(data).map_err(|e| e.to_string())?;
   let dir = subject_file_dir(app, subject_id, category)?;
+  let mut path = dir.join(safe_name(filename));
+  if path.exists() {
+    let stem = Path::new(filename).file_stem().and_then(|x| x.to_str()).unwrap_or("file");
+    let ext = Path::new(filename).extension().and_then(|x| x.to_str()).unwrap_or("");
+    let suffix = Local::now().format("%Y%m%d_%H%M%S");
+    let name = if ext.is_empty() { format!("{}_{}",safe_name(stem),suffix) } else { format!("{}_{}.{}",safe_name(stem),suffix,safe_name(ext)) };
+    path = dir.join(name);
+  }
+  fs::write(&path, bytes).map_err(|e| e.to_string())?;
+  Ok(path.to_string_lossy().to_string())
+}
+
+
+fn project_file_dir(app: &AppHandle, project_id: &str, category: &str) -> Result<PathBuf, String> {
+  let dir = app_dir(app)?.join("files").join("study-projects").join(safe_name(project_id)).join(safe_name(category));
+  fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+  Ok(dir)
+}
+
+fn save_project_base64_file(app: &AppHandle, project_id: &str, category: &str, filename: &str, data: &str) -> Result<String, String> {
+  let bytes = B64.decode(data).map_err(|e| e.to_string())?;
+  let dir = project_file_dir(app, project_id, category)?;
   let mut path = dir.join(safe_name(filename));
   if path.exists() {
     let stem = Path::new(filename).file_stem().and_then(|x| x.to_str()).unwrap_or("file");
@@ -437,14 +547,93 @@ fn update_grade_component(app:AppHandle,input:Value)->Result<Value,String>{let c
 fn delete_grade_component(app:AppHandle,id:String)->Result<bool,String>{conn(&app)?.execute("DELETE FROM grade_components WHERE id=?1",[id]).map_err(|e|e.to_string())?;Ok(true)}
 
 #[tauri::command]
+fn list_study_projects(app:AppHandle)->Result<Vec<Value>,String>{
+  let c=conn(&app)?;
+  query_json_list(&c,"SELECT json_object('id',p.id,'title',p.title,'subtitle',p.subtitle,'description',p.description,'why_learning',p.why_learning,'status',p.status,'importance',p.importance,'start_date',p.start_date,'target_date',p.target_date,'created_at',p.created_at,'updated_at',p.updated_at,'stage_count',(SELECT count(*) FROM project_stages s WHERE s.project_id=p.id),'completed_stage_count',(SELECT count(*) FROM project_stages s WHERE s.project_id=p.id AND s.status='completed'),'note_count',(SELECT count(*) FROM project_notes n WHERE n.project_id=p.id),'resource_count',(SELECT count(*) FROM project_resources r WHERE r.project_id=p.id),'experiment_count',(SELECT count(*) FROM project_experiments e WHERE e.project_id=p.id),'knowledge_count',(SELECT count(*) FROM project_knowledge k WHERE k.project_id=p.id)) FROM study_projects p ORDER BY CASE p.status WHEN 'active' THEN 0 WHEN 'idea' THEN 1 WHEN 'paused' THEN 2 ELSE 3 END,p.updated_at DESC",[])
+}
+
+fn get_project_row(c:&Connection,id:&str)->Result<Option<Value>,String>{query_json_one(c,"SELECT json_object('id',p.id,'title',p.title,'subtitle',p.subtitle,'description',p.description,'why_learning',p.why_learning,'status',p.status,'importance',p.importance,'start_date',p.start_date,'target_date',p.target_date,'created_at',p.created_at,'updated_at',p.updated_at,'stage_count',(SELECT count(*) FROM project_stages s WHERE s.project_id=p.id),'completed_stage_count',(SELECT count(*) FROM project_stages s WHERE s.project_id=p.id AND s.status='completed'),'note_count',(SELECT count(*) FROM project_notes n WHERE n.project_id=p.id),'resource_count',(SELECT count(*) FROM project_resources r WHERE r.project_id=p.id),'experiment_count',(SELECT count(*) FROM project_experiments e WHERE e.project_id=p.id),'knowledge_count',(SELECT count(*) FROM project_knowledge k WHERE k.project_id=p.id)) FROM study_projects p WHERE p.id=?1",[id])}
+
+#[tauri::command]
+fn get_study_project(app:AppHandle,id:String)->Result<Value,String>{get_project_row(&conn(&app)?,&id)?.ok_or("Study project not found".into())}
+
+#[tauri::command]
+fn create_study_project(app:AppHandle,input:Value)->Result<Value,String>{let c=conn(&app)?;let id=uuid();let ts=now();c.execute("INSERT INTO study_projects(id,title,subtitle,description,why_learning,status,importance,start_date,target_date,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)",params![id,text(&input,"title"),opt_text(&input,"subtitle"),opt_text(&input,"description"),opt_text(&input,"why_learning"),text(&input,"status"),opt_i64(&input,"importance").unwrap_or(3),opt_text(&input,"start_date"),opt_text(&input,"target_date"),ts]).map_err(|e|e.to_string())?;get_project_row(&c,&id)?.ok_or("Failed".into())}
+
+#[tauri::command]
+fn update_study_project(app:AppHandle,input:Value)->Result<Value,String>{let c=conn(&app)?;let id=text(&input,"id");let ts=now();c.execute("UPDATE study_projects SET title=?2,subtitle=?3,description=?4,why_learning=?5,status=?6,importance=?7,start_date=?8,target_date=?9,updated_at=?10 WHERE id=?1",params![id,text(&input,"title"),opt_text(&input,"subtitle"),opt_text(&input,"description"),opt_text(&input,"why_learning"),text(&input,"status"),opt_i64(&input,"importance").unwrap_or(3),opt_text(&input,"start_date"),opt_text(&input,"target_date"),ts]).map_err(|e|e.to_string())?;get_project_row(&c,&id)?.ok_or("Not found".into())}
+
+#[tauri::command]
+fn delete_study_project(app:AppHandle,id:String)->Result<bool,String>{let c=conn(&app)?;c.execute("DELETE FROM study_projects WHERE id=?1",[&id]).map_err(|e|e.to_string())?;let dir=app_dir(&app)?.join("files").join("study-projects").join(safe_name(&id));if dir.exists(){let _=fs::remove_dir_all(dir);}Ok(true)}
+
+#[tauri::command]
+fn list_project_stages(app:AppHandle,project_id:String)->Result<Vec<Value>,String>{let c=conn(&app)?;query_json_list(&c,"SELECT json_object('id',id,'project_id',project_id,'title',title,'description',description,'status',status,'sort_order',sort_order,'created_at',created_at,'updated_at',updated_at) FROM project_stages WHERE project_id=?1 ORDER BY sort_order,created_at",[project_id])}
+
+#[tauri::command]
+fn add_project_stage(app:AppHandle,input:Value)->Result<Value,String>{let c=conn(&app)?;let id=uuid();let ts=now();c.execute("INSERT INTO project_stages(id,project_id,title,description,status,sort_order,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?7)",params![id,text(&input,"project_id"),text(&input,"title"),opt_text(&input,"description"),text(&input,"status"),opt_i64(&input,"sort_order").unwrap_or(0),ts]).map_err(|e|e.to_string())?;query_json_one(&c,"SELECT json_object('id',id,'project_id',project_id,'title',title,'description',description,'status',status,'sort_order',sort_order,'created_at',created_at,'updated_at',updated_at) FROM project_stages WHERE id=?1",[id])?.ok_or("Failed".into())}
+
+#[tauri::command]
+fn update_project_stage(app:AppHandle,input:Value)->Result<Value,String>{let c=conn(&app)?;let id=text(&input,"id");c.execute("UPDATE project_stages SET title=COALESCE(?2,title),description=COALESCE(?3,description),status=COALESCE(?4,status),sort_order=COALESCE(?5,sort_order),updated_at=?6 WHERE id=?1",params![id,opt_text(&input,"title"),opt_text(&input,"description"),opt_text(&input,"status"),opt_i64(&input,"sort_order"),now()]).map_err(|e|e.to_string())?;query_json_one(&c,"SELECT json_object('id',id,'project_id',project_id,'title',title,'description',description,'status',status,'sort_order',sort_order,'created_at',created_at,'updated_at',updated_at) FROM project_stages WHERE id=?1",[id])?.ok_or("Not found".into())}
+
+#[tauri::command]
+fn delete_project_stage(app:AppHandle,id:String)->Result<bool,String>{conn(&app)?.execute("DELETE FROM project_stages WHERE id=?1",[id]).map_err(|e|e.to_string())?;Ok(true)}
+
+#[tauri::command]
+fn list_project_notes(app:AppHandle,project_id:Option<String>)->Result<Vec<Value>,String>{let c=conn(&app)?;let base="SELECT json_object('id',n.id,'project_id',n.project_id,'stage_id',n.stage_id,'title',n.title,'study_date',n.study_date,'topic',n.topic,'raw_note',n.raw_note,'summary',n.summary,'learned',n.learned,'unresolved',n.unresolved,'mastery',n.mastery,'status',n.status,'created_at',n.created_at,'updated_at',n.updated_at,'project_title',p.title,'stage_title',s.title) FROM project_notes n JOIN study_projects p ON p.id=n.project_id LEFT JOIN project_stages s ON s.id=n.stage_id";if let Some(id)=project_id{query_json_list(&c,&format!("{} WHERE n.project_id=?1 ORDER BY COALESCE(n.study_date,n.created_at) DESC",base),[id])}else{query_json_list(&c,&format!("{} ORDER BY COALESCE(n.study_date,n.created_at) DESC",base),[])}}
+
+fn get_project_note(c:&Connection,id:&str)->Result<Option<Value>,String>{query_json_one(c,"SELECT json_object('id',id,'project_id',project_id,'stage_id',stage_id,'title',title,'study_date',study_date,'topic',topic,'raw_note',raw_note,'summary',summary,'learned',learned,'unresolved',unresolved,'mastery',mastery,'status',status,'created_at',created_at,'updated_at',updated_at) FROM project_notes WHERE id=?1",[id])}
+
+#[tauri::command]
+fn add_project_note(app:AppHandle,input:Value)->Result<Value,String>{let c=conn(&app)?;let id=uuid();let ts=now();c.execute("INSERT INTO project_notes(id,project_id,stage_id,title,study_date,topic,raw_note,summary,learned,unresolved,mastery,status,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?13)",params![id,text(&input,"project_id"),opt_text(&input,"stage_id"),text(&input,"title"),opt_text(&input,"study_date"),opt_text(&input,"topic"),text(&input,"raw_note"),opt_text(&input,"summary"),opt_text(&input,"learned"),opt_text(&input,"unresolved"),opt_i64(&input,"mastery").unwrap_or(1),text(&input,"status"),ts]).map_err(|e|e.to_string())?;get_project_note(&c,&id)?.ok_or("Failed".into())}
+
+#[tauri::command]
+fn update_project_note(app:AppHandle,input:Value)->Result<Value,String>{let c=conn(&app)?;let id=text(&input,"id");c.execute("UPDATE project_notes SET stage_id=?2,title=?3,study_date=?4,topic=?5,raw_note=?6,summary=?7,learned=?8,unresolved=?9,mastery=?10,status=?11,updated_at=?12 WHERE id=?1",params![id,opt_text(&input,"stage_id"),text(&input,"title"),opt_text(&input,"study_date"),opt_text(&input,"topic"),text(&input,"raw_note"),opt_text(&input,"summary"),opt_text(&input,"learned"),opt_text(&input,"unresolved"),opt_i64(&input,"mastery").unwrap_or(1),text(&input,"status"),now()]).map_err(|e|e.to_string())?;get_project_note(&c,&id)?.ok_or("Not found".into())}
+
+#[tauri::command]
+fn delete_project_note(app:AppHandle,id:String)->Result<bool,String>{conn(&app)?.execute("DELETE FROM project_notes WHERE id=?1",[id]).map_err(|e|e.to_string())?;Ok(true)}
+
+#[tauri::command]
+fn list_project_resources(app:AppHandle,project_id:String)->Result<Vec<Value>,String>{let c=conn(&app)?;query_json_list(&c,"SELECT json_object('id',id,'project_id',project_id,'stage_id',stage_id,'title',title,'type',type,'description',description,'importance',importance,'status',status,'storage_type',storage_type,'stored_path',stored_path,'external_url',external_url,'original_filename',original_filename,'created_at',created_at) FROM project_resources WHERE project_id=?1 ORDER BY created_at DESC",[project_id])}
+
+#[tauri::command]
+fn add_project_resource(app:AppHandle,input:Value)->Result<Value,String>{let c=conn(&app)?;let id=uuid();let project_id=text(&input,"project_id");let storage=text(&input,"storage_type");let filename=opt_text(&input,"original_filename");let stored=if storage=="file"{match(filename.clone(),opt_text(&input,"file_base64")){(Some(f),Some(b))=>Some(save_project_base64_file(&app,&project_id,"resources",&f,&b)?),_=>None}}else{None};c.execute("INSERT INTO project_resources(id,project_id,stage_id,title,type,description,importance,status,storage_type,stored_path,external_url,original_filename,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",params![id,project_id,opt_text(&input,"stage_id"),text(&input,"title"),text(&input,"type"),opt_text(&input,"description"),opt_i64(&input,"importance").unwrap_or(3),text(&input,"status"),storage,stored,opt_text(&input,"external_url"),filename,now()]).map_err(|e|e.to_string())?;query_json_one(&c,"SELECT json_object('id',id,'project_id',project_id,'stage_id',stage_id,'title',title,'type',type,'description',description,'importance',importance,'status',status,'storage_type',storage_type,'stored_path',stored_path,'external_url',external_url,'original_filename',original_filename,'created_at',created_at) FROM project_resources WHERE id=?1",[id])?.ok_or("Failed".into())}
+
+#[tauri::command]
+fn delete_project_resource(app:AppHandle,id:String)->Result<bool,String>{let c=conn(&app)?;let path:Option<String>=c.query_row("SELECT stored_path FROM project_resources WHERE id=?1",[&id],|r|r.get(0)).optional().map_err(|e|e.to_string())?.flatten();c.execute("DELETE FROM project_resources WHERE id=?1",[id]).map_err(|e|e.to_string())?;if let Some(p)=path{let _=fs::remove_file(p);}Ok(true)}
+
+#[tauri::command]
+fn list_project_experiments(app:AppHandle,project_id:String)->Result<Vec<Value>,String>{let c=conn(&app)?;query_json_list(&c,"SELECT json_object('id',id,'project_id',project_id,'stage_id',stage_id,'title',title,'question',question,'setup',setup,'result',result,'conclusion',conclusion,'code_reference',code_reference,'status',status,'created_at',created_at,'updated_at',updated_at) FROM project_experiments WHERE project_id=?1 ORDER BY created_at DESC",[project_id])}
+
+fn get_project_experiment(c:&Connection,id:&str)->Result<Option<Value>,String>{query_json_one(c,"SELECT json_object('id',id,'project_id',project_id,'stage_id',stage_id,'title',title,'question',question,'setup',setup,'result',result,'conclusion',conclusion,'code_reference',code_reference,'status',status,'created_at',created_at,'updated_at',updated_at) FROM project_experiments WHERE id=?1",[id])}
+
+#[tauri::command]
+fn add_project_experiment(app:AppHandle,input:Value)->Result<Value,String>{let c=conn(&app)?;let id=uuid();let ts=now();c.execute("INSERT INTO project_experiments(id,project_id,stage_id,title,question,setup,result,conclusion,code_reference,status,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11)",params![id,text(&input,"project_id"),opt_text(&input,"stage_id"),text(&input,"title"),opt_text(&input,"question"),opt_text(&input,"setup"),opt_text(&input,"result"),opt_text(&input,"conclusion"),opt_text(&input,"code_reference"),text(&input,"status"),ts]).map_err(|e|e.to_string())?;get_project_experiment(&c,&id)?.ok_or("Failed".into())}
+
+#[tauri::command]
+fn update_project_experiment(app:AppHandle,input:Value)->Result<Value,String>{let c=conn(&app)?;let id=text(&input,"id");c.execute("UPDATE project_experiments SET stage_id=?2,title=?3,question=?4,setup=?5,result=?6,conclusion=?7,code_reference=?8,status=?9,updated_at=?10 WHERE id=?1",params![id,opt_text(&input,"stage_id"),text(&input,"title"),opt_text(&input,"question"),opt_text(&input,"setup"),opt_text(&input,"result"),opt_text(&input,"conclusion"),opt_text(&input,"code_reference"),text(&input,"status"),now()]).map_err(|e|e.to_string())?;get_project_experiment(&c,&id)?.ok_or("Not found".into())}
+
+#[tauri::command]
+fn delete_project_experiment(app:AppHandle,id:String)->Result<bool,String>{conn(&app)?.execute("DELETE FROM project_experiments WHERE id=?1",[id]).map_err(|e|e.to_string())?;Ok(true)}
+
+#[tauri::command]
+fn list_project_knowledge(app:AppHandle,project_id:Option<String>)->Result<Vec<Value>,String>{let c=conn(&app)?;let base="SELECT json_object('id',k.id,'project_id',k.project_id,'project_note_id',k.project_note_id,'title',k.title,'content',k.content,'why_it_matters',k.why_it_matters,'importance',k.importance,'is_pinned',CASE k.is_pinned WHEN 1 THEN json('true') ELSE json('false') END,'created_at',k.created_at,'updated_at',k.updated_at,'project_title',p.title) FROM project_knowledge k JOIN study_projects p ON p.id=k.project_id";if let Some(id)=project_id{query_json_list(&c,&format!("{} WHERE k.project_id=?1 ORDER BY k.is_pinned DESC,k.importance DESC,k.created_at DESC",base),[id])}else{query_json_list(&c,&format!("{} ORDER BY k.is_pinned DESC,k.importance DESC,k.created_at DESC",base),[])}}
+
+#[tauri::command]
+fn add_project_knowledge(app:AppHandle,input:Value)->Result<Value,String>{let c=conn(&app)?;let id=uuid();let ts=now();c.execute("INSERT INTO project_knowledge(id,project_id,project_note_id,title,content,why_it_matters,importance,is_pinned,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?9)",params![id,text(&input,"project_id"),opt_text(&input,"project_note_id"),text(&input,"title"),text(&input,"content"),opt_text(&input,"why_it_matters"),opt_i64(&input,"importance").unwrap_or(3),if boolv(&input,"is_pinned"){1}else{0},ts]).map_err(|e|e.to_string())?;query_json_one(&c,"SELECT json_object('id',id,'project_id',project_id,'project_note_id',project_note_id,'title',title,'content',content,'why_it_matters',why_it_matters,'importance',importance,'is_pinned',CASE is_pinned WHEN 1 THEN json('true') ELSE json('false') END,'created_at',created_at,'updated_at',updated_at) FROM project_knowledge WHERE id=?1",[id])?.ok_or("Failed".into())}
+
+#[tauri::command]
+fn delete_project_knowledge(app:AppHandle,id:String)->Result<bool,String>{conn(&app)?.execute("DELETE FROM project_knowledge WHERE id=?1",[id]).map_err(|e|e.to_string())?;Ok(true)}
+
+#[tauri::command]
 fn dashboard(app:AppHandle)->Result<Value,String>{
   let c=conn(&app)?;
   let current=query_json_one(&c,"SELECT json_object('id',id,'number',number,'name',name,'status',status,'start_date',start_date,'end_date',end_date,'description',description,'created_at',created_at,'updated_at',updated_at) FROM semesters WHERE status='current' LIMIT 1",[])?;
   let current_subjects=if let Some(ref sem)=current{let sid=sem.get("id").and_then(Value::as_str).unwrap_or("");query_json_list(&c,"SELECT json_object('id',s.id,'semester_id',s.semester_id,'code',s.code,'name',s.name,'status',s.status,'introduction',s.introduction,'my_understanding',s.my_understanding,'importance',s.importance,'importance_reason',s.importance_reason,'note',s.note,'created_at',s.created_at,'updated_at',s.updated_at,'study_note_count',(SELECT count(*) FROM study_notes n WHERE n.subject_id=s.id),'material_count',(SELECT count(*) FROM materials m WHERE m.subject_id=s.id),'critical_note_count',(SELECT count(*) FROM critical_notes k WHERE k.subject_id=s.id)) FROM subjects s WHERE s.semester_id=?1 ORDER BY s.code",[sid])?}else{vec![]};
   let recent=query_json_list(&c,"SELECT json_object('id',n.id,'subject_id',n.subject_id,'title',n.title,'week',n.week,'slot',n.slot,'study_date',n.study_date,'topic',n.topic,'raw_note',n.raw_note,'summary',n.summary,'learned',n.learned,'unresolved',n.unresolved,'mastery',n.mastery,'status',n.status,'original_filename',n.original_filename,'stored_path',n.stored_path,'created_at',n.created_at,'updated_at',n.updated_at,'subject_code',s.code,'subject_name',s.name,'semester_name',se.name) FROM study_notes n JOIN subjects s ON s.id=n.subject_id JOIN semesters se ON se.id=s.semester_id ORDER BY COALESCE(n.study_date,n.created_at) DESC LIMIT 6",[])?;
   let review=query_json_list(&c,"SELECT json_object('id',n.id,'subject_id',n.subject_id,'title',n.title,'week',n.week,'slot',n.slot,'study_date',n.study_date,'topic',n.topic,'raw_note',n.raw_note,'summary',n.summary,'learned',n.learned,'unresolved',n.unresolved,'mastery',n.mastery,'status',n.status,'original_filename',n.original_filename,'stored_path',n.stored_path,'created_at',n.created_at,'updated_at',n.updated_at,'subject_code',s.code,'subject_name',s.name,'semester_name',se.name) FROM study_notes n JOIN subjects s ON s.id=n.subject_id JOIN semesters se ON se.id=s.semester_id WHERE n.status<>'mastered' OR n.mastery<4 ORDER BY COALESCE(n.study_date,n.created_at) DESC LIMIT 6",[])?;
+  let active_projects=query_json_list(&c,"SELECT json_object('id',p.id,'title',p.title,'subtitle',p.subtitle,'description',p.description,'why_learning',p.why_learning,'status',p.status,'importance',p.importance,'start_date',p.start_date,'target_date',p.target_date,'created_at',p.created_at,'updated_at',p.updated_at,'stage_count',(SELECT count(*) FROM project_stages s WHERE s.project_id=p.id),'completed_stage_count',(SELECT count(*) FROM project_stages s WHERE s.project_id=p.id AND s.status='completed'),'note_count',(SELECT count(*) FROM project_notes n WHERE n.project_id=p.id),'resource_count',(SELECT count(*) FROM project_resources r WHERE r.project_id=p.id),'experiment_count',(SELECT count(*) FROM project_experiments e WHERE e.project_id=p.id),'knowledge_count',(SELECT count(*) FROM project_knowledge k WHERE k.project_id=p.id)) FROM study_projects p WHERE p.status='active' ORDER BY p.updated_at DESC LIMIT 4",[])?;
   let count=|table:&str|->Result<i64,String>{c.query_row(&format!("SELECT count(*) FROM {}",table),[],|r|r.get(0)).map_err(|e|e.to_string())};
-  Ok(json!({"current_semester":current,"semester_count":count("semesters")?,"subject_count":count("subjects")?,"study_note_count":count("study_notes")?,"material_count":count("materials")?,"critical_note_count":count("critical_notes")?,"current_subjects":current_subjects,"recent_notes":recent,"need_review":review}))
+  Ok(json!({"current_semester":current,"semester_count":count("semesters")?,"subject_count":count("subjects")?,"study_note_count":count("study_notes")?,"material_count":count("materials")?,"critical_note_count":count("critical_notes")?,"project_count":count("study_projects")?,"active_projects":active_projects,"current_subjects":current_subjects,"recent_notes":recent,"need_review":review}))
 }
 
 #[tauri::command]
@@ -456,7 +645,12 @@ fn search_all(app:AppHandle,query:String)->Result<Vec<Value>,String>{
     UNION ALL SELECT json_object('kind','study_note','id',id,'subject_id',subject_id,'title',title,'subtitle',coalesce(topic,'Study note')) FROM study_notes WHERE lower(title||' '||coalesce(topic,'')||' '||raw_note||' '||coalesce(summary,'')) LIKE ?1
     UNION ALL SELECT json_object('kind','critical_note','id',id,'subject_id',subject_id,'title',title,'subtitle','Critical note') FROM critical_notes WHERE lower(title||' '||content||' '||coalesce(why_it_matters,'')) LIKE ?1
     UNION ALL SELECT json_object('kind','material','id',id,'subject_id',subject_id,'title',title,'subtitle',type) FROM materials WHERE lower(title||' '||type||' '||coalesce(description,'')) LIKE ?1
-    UNION ALL SELECT json_object('kind','report','id',id,'subject_id',subject_id,'title',title,'subtitle',type) FROM reports WHERE lower(title||' '||coalesce(description,'')||' '||coalesce(note,'')) LIKE ?1
+    UNION ALL SELECT json_object('kind','report','id',id,'subject_id',subject_id,'project_id',NULL,'title',title,'subtitle',type) FROM reports WHERE lower(title||' '||coalesce(description,'')||' '||coalesce(note,'')) LIKE ?1
+    UNION ALL SELECT json_object('kind','study_project','id',id,'subject_id',NULL,'project_id',id,'title',title,'subtitle',coalesce(subtitle,status)) FROM study_projects WHERE lower(title||' '||coalesce(subtitle,'')||' '||coalesce(description,'')||' '||coalesce(why_learning,'')) LIKE ?1
+    UNION ALL SELECT json_object('kind','project_note','id',id,'subject_id',NULL,'project_id',project_id,'title',title,'subtitle',coalesce(topic,'Project note')) FROM project_notes WHERE lower(title||' '||coalesce(topic,'')||' '||raw_note||' '||coalesce(summary,'')) LIKE ?1
+    UNION ALL SELECT json_object('kind','project_knowledge','id',id,'subject_id',NULL,'project_id',project_id,'title',title,'subtitle','Project knowledge') FROM project_knowledge WHERE lower(title||' '||content||' '||coalesce(why_it_matters,'')) LIKE ?1
+    UNION ALL SELECT json_object('kind','project_resource','id',id,'subject_id',NULL,'project_id',project_id,'title',title,'subtitle',type) FROM project_resources WHERE lower(title||' '||type||' '||coalesce(description,'')) LIKE ?1
+    UNION ALL SELECT json_object('kind','project_experiment','id',id,'subject_id',NULL,'project_id',project_id,'title',title,'subtitle','Experiment') FROM project_experiments WHERE lower(title||' '||coalesce(question,'')||' '||coalesce(setup,'')||' '||coalesce(result,'')||' '||coalesce(conclusion,'')) LIKE ?1
     LIMIT 50
   "#;
   query_json_list(&c,sql,[q])
@@ -507,6 +701,12 @@ pub fn run(){
       list_critical_notes,add_critical_note,delete_critical_note,
       list_reports,add_report,delete_report,list_report_members,add_report_member,delete_report_member,list_report_files,add_report_file,delete_report_file,
       get_grade_scheme,save_grade_scheme,add_grade_component,update_grade_component,delete_grade_component,
+      list_study_projects,get_study_project,create_study_project,update_study_project,delete_study_project,
+      list_project_stages,add_project_stage,update_project_stage,delete_project_stage,
+      list_project_notes,add_project_note,update_project_note,delete_project_note,
+      list_project_resources,add_project_resource,delete_project_resource,
+      list_project_experiments,add_project_experiment,update_project_experiment,delete_project_experiment,
+      list_project_knowledge,add_project_knowledge,delete_project_knowledge,
       dashboard,search_all,create_backup,restore_backup,reset_all_data
     ])
     .run(tauri::generate_context!())
