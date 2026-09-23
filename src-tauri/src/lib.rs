@@ -295,13 +295,47 @@ fn init_db(app: &AppHandle) -> Result<(), String> {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+
+    CREATE TABLE IF NOT EXISTS tags (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS entity_tags (
+      id TEXT PRIMARY KEY,
+      tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(tag_id, entity_type, entity_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_entity_tags_entity ON entity_tags(entity_type, entity_id);
+    CREATE INDEX IF NOT EXISTS idx_entity_tags_tag ON entity_tags(tag_id);
+
+    CREATE TABLE IF NOT EXISTS import_records (
+      id TEXT PRIMARY KEY,
+      semester_id TEXT NOT NULL REFERENCES semesters(id) ON DELETE CASCADE,
+      relative_path TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      file_size INTEGER NOT NULL DEFAULT 0,
+      last_modified INTEGER,
+      entity_type TEXT NOT NULL CHECK(entity_type IN ('study_note','material','report_file')),
+      entity_id TEXT,
+      imported_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(semester_id, relative_path)
+    );
+    CREATE INDEX IF NOT EXISTS idx_import_records_semester ON import_records(semester_id);
+    CREATE INDEX IF NOT EXISTS idx_import_records_hash ON import_records(semester_id, content_hash);
   "#).map_err(|e| e.to_string())?;
 
   // Database migration foundation. Keep this identifier and app-data location stable
   // so future Setup upgrades can migrate data in-place instead of replacing it.
   let schema_version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-  if schema_version < 2 {
-    c.pragma_update(None, "user_version", 2).map_err(|e| e.to_string())?;
+  if schema_version < 4 {
+    c.pragma_update(None, "user_version", 4).map_err(|e| e.to_string())?;
   }
 
   Ok(())
@@ -624,6 +658,116 @@ fn add_project_knowledge(app:AppHandle,input:Value)->Result<Value,String>{let c=
 #[tauri::command]
 fn delete_project_knowledge(app:AppHandle,id:String)->Result<bool,String>{conn(&app)?.execute("DELETE FROM project_knowledge WHERE id=?1",[id]).map_err(|e|e.to_string())?;Ok(true)}
 
+
+fn normalize_tag_name(raw:&str)->String {
+  raw.trim().trim_start_matches('#').split_whitespace().collect::<Vec<_>>().join("-").to_lowercase()
+}
+
+fn allowed_entity_type(value:&str)->bool {
+  matches!(value,"subject"|"study_project"|"study_note"|"critical_note"|"material"|"report"|"project_note"|"project_resource"|"project_knowledge"|"project_experiment")
+}
+
+fn tag_names(c:&Connection,entity_type:&str,entity_id:&str)->Result<Vec<String>,String>{
+  let mut stmt=c.prepare("SELECT t.name FROM tags t JOIN entity_tags et ON et.tag_id=t.id WHERE et.entity_type=?1 AND et.entity_id=?2 ORDER BY lower(t.name)").map_err(|e|e.to_string())?;
+  let rows=stmt.query_map(params![entity_type,entity_id],|r|r.get::<_,String>(0)).map_err(|e|e.to_string())?;
+  let mut out=Vec::new(); for row in rows {out.push(row.map_err(|e|e.to_string())?);} Ok(out)
+}
+
+fn all_item_tags(c:&Connection,direct_type:&str,direct_id:&str,parent_type:Option<&str>,parent_id:Option<&str>)->Result<Vec<String>,String>{
+  let mut out=tag_names(c,direct_type,direct_id)?;
+  if let (Some(pt),Some(pi))=(parent_type,parent_id){out.extend(tag_names(c,pt,pi)?);}
+  out.sort(); out.dedup(); Ok(out)
+}
+
+#[tauri::command]
+fn list_tags(app:AppHandle)->Result<Vec<Value>,String>{
+  let c=conn(&app)?;
+  query_json_list(&c,"SELECT json_object('id',t.id,'name',t.name,'usage_count',(SELECT count(*) FROM entity_tags et WHERE et.tag_id=t.id),'created_at',t.created_at) FROM tags t ORDER BY lower(t.name)",[])
+}
+
+#[tauri::command]
+fn get_entity_tags(app:AppHandle,entity_type:String,entity_id:String)->Result<Vec<Value>,String>{
+  if !allowed_entity_type(&entity_type){return Err("Unsupported tag entity type".into());}
+  let c=conn(&app)?;
+  query_json_list(&c,"SELECT json_object('id',t.id,'name',t.name,'usage_count',(SELECT count(*) FROM entity_tags x WHERE x.tag_id=t.id),'created_at',t.created_at) FROM tags t JOIN entity_tags et ON et.tag_id=t.id WHERE et.entity_type=?1 AND et.entity_id=?2 ORDER BY lower(t.name)",params![entity_type,entity_id])
+}
+
+#[tauri::command]
+fn set_entity_tags(app:AppHandle,entity_type:String,entity_id:String,tag_names:Vec<String>)->Result<Vec<Value>,String>{
+  if !allowed_entity_type(&entity_type){return Err("Unsupported tag entity type".into());}
+  let c=conn(&app)?;
+  c.execute("DELETE FROM entity_tags WHERE entity_type=?1 AND entity_id=?2",params![entity_type,entity_id]).map_err(|e|e.to_string())?;
+  let mut names:Vec<String>=tag_names.iter().map(|x|normalize_tag_name(x)).filter(|x|!x.is_empty()).collect(); names.sort(); names.dedup();
+  for name in names {
+    let existing:Option<String>=c.query_row("SELECT id FROM tags WHERE lower(name)=lower(?1)",[&name],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+    let tag_id=match existing {Some(id)=>id,None=>{let id=uuid();c.execute("INSERT INTO tags(id,name,created_at) VALUES(?1,?2,?3)",params![id,name,now()]).map_err(|e|e.to_string())?;id}};
+    c.execute("INSERT OR IGNORE INTO entity_tags(id,tag_id,entity_type,entity_id,created_at) VALUES(?1,?2,?3,?4,?5)",params![uuid(),tag_id,entity_type,entity_id,now()]).map_err(|e|e.to_string())?;
+  }
+  c.execute("DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM entity_tags)",[]).map_err(|e|e.to_string())?;
+  get_entity_tags(app,entity_type,entity_id)
+}
+
+#[tauri::command]
+fn list_import_records(app:AppHandle,semester_id:String)->Result<Vec<Value>,String>{
+  let c=conn(&app)?;
+  query_json_list(&c,"SELECT json_object('id',id,'semester_id',semester_id,'relative_path',relative_path,'content_hash',content_hash,'file_size',file_size,'last_modified',last_modified,'entity_type',entity_type,'entity_id',entity_id,'imported_at',imported_at,'updated_at',updated_at) FROM import_records WHERE semester_id=?1 ORDER BY relative_path",[semester_id])
+}
+
+#[tauri::command]
+fn import_semester_file(app:AppHandle,input:Value)->Result<Value,String>{
+  let c=conn(&app)?;
+  let semester_id=text(&input,"semester_id"); let relative_path=text(&input,"relative_path"); let content_hash=text(&input,"content_hash"); let kind=text(&input,"kind"); let subject_id=text(&input,"subject_id");
+  if semester_id.is_empty()||relative_path.is_empty()||subject_id.is_empty(){return Err("semester_id, subject_id and relative_path are required".into());}
+  if !matches!(kind.as_str(),"study_note"|"material"|"report_file"){return Err("Unsupported import kind".into());}
+  let existing:Option<(String,String,Option<String>,String)>=c.query_row("SELECT id,entity_type,entity_id,imported_at FROM import_records WHERE semester_id=?1 AND relative_path=?2",params![semester_id,relative_path],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(|e|e.to_string())?;
+  let existing_entity=existing.as_ref().and_then(|x|x.2.clone()); let mut entity_id=existing_entity.clone().unwrap_or_default(); let ts=now();
+  let original=opt_text(&input,"original_filename").unwrap_or_else(||Path::new(&relative_path).file_name().and_then(|x|x.to_str()).unwrap_or("imported-file").to_string());
+  let base64=opt_text(&input,"file_base64");
+
+  if kind=="study_note" {
+    let stored=match base64.as_ref(){Some(b)=>Some(save_base64_file(&app,&subject_id,"study-notes",&original,b)?),None=>None};
+    if !entity_id.is_empty() && existing.as_ref().map(|x|x.1.as_str())==Some("study_note") {
+      c.execute("UPDATE study_notes SET subject_id=?2,title=?3,week=?4,slot=?5,study_date=?6,topic=?7,raw_note=?8,original_filename=?9,stored_path=COALESCE(?10,stored_path),updated_at=?11 WHERE id=?1",params![entity_id,subject_id,text(&input,"title"),opt_i64(&input,"week"),opt_i64(&input,"slot"),opt_text(&input,"study_date"),opt_text(&input,"topic"),text(&input,"raw_note"),original,stored,ts]).map_err(|e|e.to_string())?;
+    } else {
+      entity_id=uuid();c.execute("INSERT INTO study_notes(id,subject_id,title,week,slot,study_date,topic,raw_note,summary,learned,unresolved,mastery,status,original_filename,stored_path,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,NULL,NULL,NULL,1,'captured',?9,?10,?11,?11)",params![entity_id,subject_id,text(&input,"title"),opt_i64(&input,"week"),opt_i64(&input,"slot"),opt_text(&input,"study_date"),opt_text(&input,"topic"),text(&input,"raw_note"),original,stored,ts]).map_err(|e|e.to_string())?;
+    }
+  } else if kind=="report_file" {
+    let report_title=opt_text(&input,"report_title").unwrap_or_else(||"Imported Report".into());
+    let report_id:Option<String>=c.query_row("SELECT id FROM reports WHERE subject_id=?1 AND lower(title)=lower(?2) LIMIT 1",params![subject_id,report_title],|r|r.get(0)).optional().map_err(|e|e.to_string())?;
+    let report_id=match report_id{Some(id)=>id,None=>{let id=uuid();c.execute("INSERT INTO reports(id,subject_id,title,type,status,description,created_at,updated_at) VALUES(?1,?2,?3,'report','planning','Imported from semester folder',?4,?4)",params![id,subject_id,report_title,ts]).map_err(|e|e.to_string())?;id}};
+    let stored=match base64.as_ref(){Some(b)=>Some(save_base64_file(&app,&subject_id,"reports",&original,b)?),None=>None};
+    if !entity_id.is_empty() && existing.as_ref().map(|x|x.1.as_str())==Some("report_file") {
+      c.execute("UPDATE report_files SET report_id=?2,title=?3,original_filename=?4,stored_path=COALESCE(?5,stored_path) WHERE id=?1",params![entity_id,report_id,text(&input,"title"),original,stored]).map_err(|e|e.to_string())?;
+    } else {entity_id=uuid();c.execute("INSERT INTO report_files(id,report_id,title,original_filename,stored_path,created_at) VALUES(?1,?2,?3,?4,?5,?6)",params![entity_id,report_id,text(&input,"title"),original,stored,ts]).map_err(|e|e.to_string())?;}
+  } else {
+    let stored=match base64.as_ref(){Some(b)=>Some(save_base64_file(&app,&subject_id,"materials",&original,b)?),None=>None};
+    if !entity_id.is_empty() && existing.as_ref().map(|x|x.1.as_str())==Some("material") {
+      c.execute("UPDATE materials SET subject_id=?2,title=?3,type=?4,stored_path=COALESCE(?5,stored_path),original_filename=?6 WHERE id=?1",params![entity_id,subject_id,text(&input,"title"),text(&input,"material_type"),stored,original]).map_err(|e|e.to_string())?;
+    } else {entity_id=uuid();c.execute("INSERT INTO materials(id,subject_id,title,type,description,importance,storage_type,stored_path,external_url,original_filename,created_at) VALUES(?1,?2,?3,?4,'Imported from semester folder',3,'file',?5,NULL,?6,?7)",params![entity_id,subject_id,text(&input,"title"),text(&input,"material_type"),stored,original,ts]).map_err(|e|e.to_string())?;}
+  }
+  let rec_id=existing.as_ref().map(|x|x.0.clone()).unwrap_or_else(uuid); let imported_at=existing.as_ref().map(|x|x.3.clone()).unwrap_or_else(||ts.clone());
+  c.execute("INSERT INTO import_records(id,semester_id,relative_path,content_hash,file_size,last_modified,entity_type,entity_id,imported_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(semester_id,relative_path) DO UPDATE SET content_hash=excluded.content_hash,file_size=excluded.file_size,last_modified=excluded.last_modified,entity_type=excluded.entity_type,entity_id=excluded.entity_id,updated_at=excluded.updated_at",params![rec_id,semester_id,relative_path,content_hash,opt_i64(&input,"file_size").unwrap_or(0),opt_i64(&input,"last_modified"),kind,entity_id,imported_at,ts]).map_err(|e|e.to_string())?;
+  query_json_one(&c,"SELECT json_object('id',id,'semester_id',semester_id,'relative_path',relative_path,'content_hash',content_hash,'file_size',file_size,'last_modified',last_modified,'entity_type',entity_type,'entity_id',entity_id,'imported_at',imported_at,'updated_at',updated_at) FROM import_records WHERE id=?1",[rec_id])?.ok_or("Import record not found".into())
+}
+
+fn push_explore(out:&mut Vec<Value>,kind:&str,id:&str,subject_id:Option<&str>,project_id:Option<&str>,semester_id:Option<&str>,title:String,subtitle:String,context:String,tags:Vec<String>){
+  out.push(json!({"kind":kind,"id":id,"subject_id":subject_id,"project_id":project_id,"semester_id":semester_id,"title":title,"subtitle":subtitle,"context":context,"tags":tags}));
+}
+
+#[tauri::command]
+fn explore_items(app:AppHandle,query:Option<String>,tag:Option<String>,kind:Option<String>,semester_id:Option<String>)->Result<Vec<Value>,String>{
+  let c=conn(&app)?; let q=query.unwrap_or_default().to_lowercase(); let tag_filter=normalize_tag_name(&tag.unwrap_or_default()); let kind_filter=kind.unwrap_or_else(||"all".into()); let sem_filter=semester_id.unwrap_or_default(); let mut out=Vec::new();
+  let mut accept=|item:Value|{let item_kind=item.get("kind").and_then(Value::as_str).unwrap_or("");let item_sem=item.get("semester_id").and_then(Value::as_str).unwrap_or("");let tags=item.get("tags").and_then(Value::as_array).cloned().unwrap_or_default();let tag_hit=tag_filter.is_empty()||tags.iter().any(|x|x.as_str()==Some(tag_filter.as_str()));let text=format!("{} {} {} {}",item.get("title").and_then(Value::as_str).unwrap_or(""),item.get("subtitle").and_then(Value::as_str).unwrap_or(""),item.get("context").and_then(Value::as_str).unwrap_or(""),tags.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")).to_lowercase();if (kind_filter=="all"||kind_filter==item_kind)&&(sem_filter.is_empty()||sem_filter==item_sem)&&tag_hit&&(q.is_empty()||text.contains(&q)){out.push(item);}};
+  let subjects=query_json_list(&c,"SELECT json_object('id',s.id,'semester_id',s.semester_id,'code',s.code,'name',s.name,'status',s.status,'semester_name',se.name) FROM subjects s JOIN semesters se ON se.id=s.semester_id ORDER BY s.code",[])?;
+  for x in subjects {let id=x["id"].as_str().unwrap_or("");let tags=all_item_tags(&c,"subject",id,None,None)?;accept(json!({"kind":"subject","id":id,"subject_id":id,"project_id":Value::Null,"semester_id":x["semester_id"],"title":format!("{} — {}",x["code"].as_str().unwrap_or(""),x["name"].as_str().unwrap_or("")),"subtitle":x["status"],"context":x["semester_name"],"tags":tags}));}
+  let academic_specs=[("study_note","study_notes","title","coalesce(topic,'Study note')"),("material","materials","title","type"),("critical_note","critical_notes","title","'Critical note'"),("report","reports","title","type")];
+  for (ek,table,title_expr,sub_expr) in academic_specs {let sql=format!("SELECT json_object('id',x.id,'subject_id',x.subject_id,'semester_id',s.semester_id,'title',x.{},'subtitle',{},'context',s.code||' · '||se.name) FROM {} x JOIN subjects s ON s.id=x.subject_id JOIN semesters se ON se.id=s.semester_id",title_expr,sub_expr,table);for x in query_json_list(&c,&sql,[])? {let id=x["id"].as_str().unwrap_or("");let sid=x["subject_id"].as_str().unwrap_or("");let tags=all_item_tags(&c,ek,id,Some("subject"),Some(sid))?;accept(json!({"kind":ek,"id":id,"subject_id":sid,"project_id":Value::Null,"semester_id":x["semester_id"],"title":x["title"],"subtitle":x["subtitle"],"context":x["context"],"tags":tags}));}}
+  let projects=query_json_list(&c,"SELECT json_object('id',id,'title',title,'subtitle',coalesce(subtitle,status)) FROM study_projects ORDER BY updated_at DESC",[])?;for x in projects {let id=x["id"].as_str().unwrap_or("");let tags=all_item_tags(&c,"study_project",id,None,None)?;accept(json!({"kind":"study_project","id":id,"subject_id":Value::Null,"project_id":id,"semester_id":Value::Null,"title":x["title"],"subtitle":x["subtitle"],"context":"Self study","tags":tags}));}
+  let project_specs=[("project_note","project_notes","coalesce(topic,'Project note')"),("project_resource","project_resources","type"),("project_knowledge","project_knowledge","'Knowledge'"),("project_experiment","project_experiments","'Experiment'")];
+  for (ek,table,sub_expr) in project_specs {let sql=format!("SELECT json_object('id',x.id,'project_id',x.project_id,'title',x.title,'subtitle',{},'context',p.title) FROM {} x JOIN study_projects p ON p.id=x.project_id",sub_expr,table);for x in query_json_list(&c,&sql,[])? {let id=x["id"].as_str().unwrap_or("");let pid=x["project_id"].as_str().unwrap_or("");let tags=all_item_tags(&c,ek,id,Some("study_project"),Some(pid))?;accept(json!({"kind":ek,"id":id,"subject_id":Value::Null,"project_id":pid,"semester_id":Value::Null,"title":x["title"],"subtitle":x["subtitle"],"context":x["context"],"tags":tags}));}}
+  out.truncate(500); Ok(out)
+}
+
 #[tauri::command]
 fn dashboard(app:AppHandle)->Result<Value,String>{
   let c=conn(&app)?;
@@ -707,6 +851,7 @@ pub fn run(){
       list_project_resources,add_project_resource,delete_project_resource,
       list_project_experiments,add_project_experiment,update_project_experiment,delete_project_experiment,
       list_project_knowledge,add_project_knowledge,delete_project_knowledge,
+      list_tags,get_entity_tags,set_entity_tags,list_import_records,import_semester_file,explore_items,
       dashboard,search_all,create_backup,restore_backup,reset_all_data
     ])
     .run(tauri::generate_context!())

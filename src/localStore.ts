@@ -19,6 +19,9 @@ import type {
   StudyNote,
   StudyProject,
   Subject,
+  Tag,
+  ImportRecord,
+  ExploreItem,
 } from './types';
 
 type LocalDb = {
@@ -39,6 +42,9 @@ type LocalDb = {
   project_resources: ProjectResource[];
   project_experiments: ProjectExperiment[];
   project_knowledge: ProjectKnowledge[];
+  tags: Tag[];
+  entity_tags: Array<{ id: string; tag_id: string; entity_type: string; entity_id: string; created_at: string }>;
+  import_records: ImportRecord[];
 };
 
 const KEY = 'my-study-hub-local-v2';
@@ -61,6 +67,9 @@ const emptyDb = (): LocalDb => ({
   project_resources: [],
   project_experiments: [],
   project_knowledge: [],
+  tags: [],
+  entity_tags: [],
+  import_records: [],
 });
 
 function load(): LocalDb {
@@ -87,6 +96,19 @@ function now() {
 
 function sortByCreated<T extends { created_at?: string }>(items: T[]) {
   return [...items].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+}
+
+function normalizeTagName(value: string) {
+  return value.trim().replace(/^#+/, '').replace(/\s+/g, '-').toLowerCase();
+}
+
+function directTagNames(db: LocalDb, entityType: string, entityId: string): string[] {
+  const ids = new Set(db.entity_tags.filter(x => x.entity_type === entityType && x.entity_id === entityId).map(x => x.tag_id));
+  return db.tags.filter(t => ids.has(t.id)).map(t => t.name).sort();
+}
+
+function mergedTags(...groups: string[][]) {
+  return [...new Set(groups.flat().filter(Boolean))].sort();
 }
 
 export async function localCommand<T>(command: string, args: Record<string, any> = {}): Promise<T> {
@@ -520,6 +542,110 @@ export async function localCommand<T>(command: string, args: Record<string, any>
     case 'delete_project_knowledge':
       db.project_knowledge = db.project_knowledge.filter(x => x.id !== args.id); save(db); return true as T;
 
+    case 'list_tags': {
+      const counts = new Map<string, number>();
+      db.entity_tags.forEach(x => counts.set(x.tag_id, (counts.get(x.tag_id) || 0) + 1));
+      return db.tags.map(t => ({ ...t, usage_count: counts.get(t.id) || 0 })).sort((a,b)=>a.name.localeCompare(b.name)) as T;
+    }
+
+    case 'get_entity_tags': {
+      const names = directTagNames(db, String(args.entityType || args.entity_type || ''), String(args.entityId || args.entity_id || ''));
+      return db.tags.filter(t => names.includes(t.name)).sort((a,b)=>a.name.localeCompare(b.name)) as T;
+    }
+
+    case 'set_entity_tags': {
+      const entityType = String(args.entityType || args.entity_type || '');
+      const entityId = String(args.entityId || args.entity_id || '');
+      const raw = Array.isArray(args.tagNames) ? args.tagNames : Array.isArray(args.tag_names) ? args.tag_names : [];
+      const names = [...new Set(raw.map((x:any)=>normalizeTagName(String(x))).filter(Boolean))];
+      db.entity_tags = db.entity_tags.filter(x => !(x.entity_type === entityType && x.entity_id === entityId));
+      for (const name of names) {
+        let tag = db.tags.find(t => t.name.toLowerCase() === name.toLowerCase());
+        if (!tag) { tag = { id: id(), name, created_at: now() }; db.tags.push(tag); }
+        db.entity_tags.push({ id: id(), tag_id: tag.id, entity_type: entityType, entity_id: entityId, created_at: now() });
+      }
+      const used = new Set(db.entity_tags.map(x => x.tag_id));
+      db.tags = db.tags.filter(t => used.has(t.id));
+      save(db);
+      return db.tags.filter(t => names.includes(t.name)).sort((a,b)=>a.name.localeCompare(b.name)) as T;
+    }
+
+    case 'list_import_records':
+      return db.import_records.filter(x => x.semester_id === args.semesterId || x.semester_id === args.semester_id) as T;
+
+    case 'import_semester_file': {
+      const input = args.input || {};
+      const semesterId = String(input.semester_id || '');
+      const relativePath = String(input.relative_path || '');
+      const hash = String(input.content_hash || '');
+      const kind = String(input.kind || 'material') as ImportRecord['entity_type'];
+      const subjectId = String(input.subject_id || '');
+      let rec = db.import_records.find(x => x.semester_id === semesterId && x.relative_path === relativePath);
+      let entityId = rec?.entity_id || '';
+      const ts = now();
+
+      if (kind === 'study_note') {
+        let item = entityId ? db.study_notes.find(x => x.id === entityId) : undefined;
+        if (!item) {
+          item = { id: id(), subject_id: subjectId, title: input.title || input.original_filename || 'Imported note', week: input.week ?? null, slot: input.slot ?? null, study_date: input.study_date || null, topic: input.topic || null, raw_note: input.raw_note || '', summary: null, learned: null, unresolved: null, mastery: 1, status: 'captured', original_filename: input.original_filename || null, stored_path: null, created_at: ts, updated_at: ts };
+          db.study_notes.push(item);
+        } else {
+          Object.assign(item, { subject_id: subjectId, title: input.title || item.title, week: input.week ?? item.week, slot: input.slot ?? item.slot, study_date: input.study_date || item.study_date, topic: input.topic || item.topic, raw_note: input.raw_note ?? item.raw_note, original_filename: input.original_filename || item.original_filename, updated_at: ts });
+        }
+        entityId = item.id;
+      } else if (kind === 'report_file') {
+        const reportTitle = String(input.report_title || 'Imported Report');
+        let report = db.reports.find(x => x.subject_id === subjectId && x.title.toLowerCase() === reportTitle.toLowerCase());
+        if (!report) { report = { id: id(), subject_id: subjectId, title: reportTitle, type: 'report', status: 'planning', description: 'Imported from semester folder', created_at: ts, updated_at: ts }; db.reports.push(report); }
+        let item = entityId ? db.report_files.find(x => x.id === entityId) : undefined;
+        if (!item) { item = { id: id(), report_id: report.id, title: input.title || input.original_filename || 'Imported file', original_filename: input.original_filename || null, stored_path: null, created_at: ts }; db.report_files.push(item); }
+        else Object.assign(item, { report_id: report.id, title: input.title || item.title, original_filename: input.original_filename || item.original_filename });
+        entityId = item.id;
+      } else {
+        let item = entityId ? db.materials.find(x => x.id === entityId) : undefined;
+        if (!item) {
+          item = { id: id(), subject_id: subjectId, title: input.title || input.original_filename || 'Imported material', type: input.material_type || 'Reference', description: 'Imported from semester folder', importance: 3, storage_type: 'file', stored_path: null, external_url: null, original_filename: input.original_filename || null, created_at: ts };
+          db.materials.push(item);
+        } else Object.assign(item, { subject_id: subjectId, title: input.title || item.title, type: input.material_type || item.type, original_filename: input.original_filename || item.original_filename });
+        entityId = item.id;
+      }
+
+      const next: ImportRecord = { id: rec?.id || id(), semester_id: semesterId, relative_path: relativePath, content_hash: hash, file_size: Number(input.file_size || 0), last_modified: input.last_modified ?? null, entity_type: kind, entity_id: entityId, imported_at: rec?.imported_at || ts, updated_at: ts };
+      if (rec) Object.assign(rec, next); else db.import_records.push(next);
+      save(db);
+      return next as T;
+    }
+
+    case 'explore_items': {
+      const query = String(args.query || '').trim().toLowerCase();
+      const tag = normalizeTagName(String(args.tag || ''));
+      const kindFilter = String(args.kind || 'all');
+      const semesterId = String(args.semesterId || args.semester_id || '');
+      const out: ExploreItem[] = [];
+      const subjectTags = (subjectId:string) => directTagNames(db, 'subject', subjectId);
+      const projectTags = (projectId:string) => directTagNames(db, 'study_project', projectId);
+      const add = (item:ExploreItem, direct:string[]=[], inherited:string[]=[]) => {
+        item.tags = mergedTags(direct, inherited);
+        const hay = `${item.title} ${item.subtitle||''} ${item.context||''} ${item.tags.join(' ')}`.toLowerCase();
+        if (query && !hay.includes(query)) return;
+        if (tag && !item.tags.includes(tag)) return;
+        if (kindFilter !== 'all' && item.kind !== kindFilter) return;
+        if (semesterId && item.semester_id !== semesterId) return;
+        out.push(item);
+      };
+      db.subjects.forEach(x=>{const sem=db.semesters.find(s=>s.id===x.semester_id);add({kind:'subject',id:x.id,subject_id:x.id,semester_id:x.semester_id,title:`${x.code} — ${x.name}`,subtitle:x.status,context:sem?.name||'',tags:[]},directTagNames(db,'subject',x.id));});
+      db.study_notes.forEach(x=>{const s=db.subjects.find(v=>v.id===x.subject_id);if(!s)return;const sem=db.semesters.find(v=>v.id===s.semester_id);add({kind:'study_note',id:x.id,subject_id:x.subject_id,semester_id:s.semester_id,title:x.title,subtitle:s.code,context:sem?.name||'',tags:[]},directTagNames(db,'study_note',x.id),subjectTags(x.subject_id));});
+      db.materials.forEach(x=>{const s=db.subjects.find(v=>v.id===x.subject_id);if(!s)return;const sem=db.semesters.find(v=>v.id===s.semester_id);add({kind:'material',id:x.id,subject_id:x.subject_id,semester_id:s.semester_id,title:x.title,subtitle:x.type,context:`${s.code} · ${sem?.name||''}`,tags:[]},directTagNames(db,'material',x.id),subjectTags(x.subject_id));});
+      db.critical_notes.forEach(x=>{const s=db.subjects.find(v=>v.id===x.subject_id);if(!s)return;const sem=db.semesters.find(v=>v.id===s.semester_id);add({kind:'critical_note',id:x.id,subject_id:x.subject_id,semester_id:s.semester_id,title:x.title,subtitle:'Critical note',context:`${s.code} · ${sem?.name||''}`,tags:[]},directTagNames(db,'critical_note',x.id),subjectTags(x.subject_id));});
+      db.reports.forEach(x=>{const s=db.subjects.find(v=>v.id===x.subject_id);if(!s)return;const sem=db.semesters.find(v=>v.id===s.semester_id);add({kind:'report',id:x.id,subject_id:x.subject_id,semester_id:s.semester_id,title:x.title,subtitle:x.type,context:`${s.code} · ${sem?.name||''}`,tags:[]},directTagNames(db,'report',x.id),subjectTags(x.subject_id));});
+      db.study_projects.forEach(x=>add({kind:'study_project',id:x.id,project_id:x.id,title:x.title,subtitle:x.subtitle||x.status,context:'Self study',tags:[]},directTagNames(db,'study_project',x.id)));
+      db.project_notes.forEach(x=>{const p=db.study_projects.find(v=>v.id===x.project_id);if(!p)return;add({kind:'project_note',id:x.id,project_id:x.project_id,title:x.title,subtitle:p.title,context:x.topic||'Project note',tags:[]},directTagNames(db,'project_note',x.id),projectTags(x.project_id));});
+      db.project_resources.forEach(x=>{const p=db.study_projects.find(v=>v.id===x.project_id);if(!p)return;add({kind:'project_resource',id:x.id,project_id:x.project_id,title:x.title,subtitle:x.type,context:p.title,tags:[]},directTagNames(db,'project_resource',x.id),projectTags(x.project_id));});
+      db.project_knowledge.forEach(x=>{const p=db.study_projects.find(v=>v.id===x.project_id);if(!p)return;add({kind:'project_knowledge',id:x.id,project_id:x.project_id,title:x.title,subtitle:'Knowledge',context:p.title,tags:[]},directTagNames(db,'project_knowledge',x.id),projectTags(x.project_id));});
+      db.project_experiments.forEach(x=>{const p=db.study_projects.find(v=>v.id===x.project_id);if(!p)return;add({kind:'project_experiment',id:x.id,project_id:x.project_id,title:x.title,subtitle:'Experiment',context:p.title,tags:[]},directTagNames(db,'project_experiment',x.id),projectTags(x.project_id));});
+      return out.slice(0, 500) as T;
+    }
+
     case 'dashboard': {
       const current = db.semesters.find(x => x.status === 'current') || null;
       const currentSubjects = current ? db.subjects.filter(x => x.semester_id === current.id) : [];
@@ -568,7 +694,7 @@ export async function localCommand<T>(command: string, args: Record<string, any>
     }
 
     case 'export_json': {
-      const payload = JSON.stringify({ version: 3, exported_at: now(), data: db }, null, 2);
+      const payload = JSON.stringify({ version: 4, exported_at: now(), data: db }, null, 2);
       return payload as T;
     }
 

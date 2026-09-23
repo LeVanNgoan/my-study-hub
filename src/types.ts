@@ -7,6 +7,40 @@ export type ProjectStageStatus = 'planned' | 'in_progress' | 'completed';
 export type ProjectResourceStatus = 'saved' | 'reading' | 'completed';
 export type ProjectExperimentStatus = 'planned' | 'running' | 'completed';
 
+export type TaggableEntityType = 'subject' | 'study_project' | 'study_note' | 'critical_note' | 'material' | 'report' | 'project_note' | 'project_resource' | 'project_knowledge' | 'project_experiment';
+
+export interface Tag {
+  id: string;
+  name: string;
+  usage_count?: number;
+  created_at?: string;
+}
+
+export interface ImportRecord {
+  id: string;
+  semester_id: string;
+  relative_path: string;
+  content_hash: string;
+  file_size: number;
+  last_modified?: number | null;
+  entity_type: 'study_note' | 'material' | 'report_file';
+  entity_id?: string | null;
+  imported_at: string;
+  updated_at: string;
+}
+
+export interface ExploreItem {
+  kind: 'subject' | 'study_project' | 'study_note' | 'critical_note' | 'material' | 'report' | 'project_note' | 'project_resource' | 'project_knowledge' | 'project_experiment';
+  id: string;
+  subject_id?: string | null;
+  project_id?: string | null;
+  semester_id?: string | null;
+  title: string;
+  subtitle?: string | null;
+  context?: string | null;
+  tags: string[];
+}
+
 export interface Semester {
   id: string;
   number: number | null;

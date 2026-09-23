@@ -3,12 +3,13 @@ import { call, downloadText, fileToBase64, isNative, parseStudyNoteFilename } fr
 import type {
   AppInfo, CriticalNote, DashboardData, GradeComponent, GradeScheme, Lecturer, Material,
   Report, ReportFile, ReportMember, SearchResult, Semester, SemesterStatus, StudyNote, StudyNoteStatus, Subject, SubjectStatus, GradeType,
-  StudyProject, StudyProjectStatus, ProjectStage, ProjectStageStatus, ProjectNote, ProjectResource, ProjectResourceStatus, ProjectExperiment, ProjectExperimentStatus, ProjectKnowledge
+  StudyProject, StudyProjectStatus, ProjectStage, ProjectStageStatus, ProjectNote, ProjectResource, ProjectResourceStatus, ProjectExperiment, ProjectExperimentStatus, ProjectKnowledge,
+  Tag, TaggableEntityType, ImportRecord, ExploreItem
 } from './types';
 import { Badge, ConfirmButton, Empty, Field, Modal, Stars } from './ui';
-import { LayoutDashboard, GraduationCap, NotebookPen, BrainCircuit, Settings, BookOpen, Search, BookMarked, Files, ArrowRight, ChevronLeft, Pencil, FolderKanban, Route, FlaskConical, Lightbulb, Link2, CircleCheckBig } from 'lucide-react';
+import { LayoutDashboard, GraduationCap, NotebookPen, BrainCircuit, Settings, BookOpen, Search, BookMarked, Files, ArrowRight, ChevronLeft, Pencil, FolderKanban, Route, FlaskConical, Lightbulb, Link2, CircleCheckBig, Tags, FolderInput, FileUp, RefreshCw, Filter, Code2, Database, Terminal, Hash } from 'lucide-react';
 
-type Page = 'dashboard' | 'semesters' | 'projects' | 'study-notes' | 'knowledge' | 'settings';
+type Page = 'dashboard' | 'semesters' | 'projects' | 'study-notes' | 'knowledge' | 'explore' | 'settings';
 type SubjectTab = 'overview' | 'study-notes' | 'materials' | 'critical' | 'reports' | 'lecturer' | 'results';
 type ProjectTab = 'overview' | 'roadmap' | 'notes' | 'resources' | 'experiments' | 'knowledge';
 
@@ -61,13 +62,14 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><div className="brand-mark"><BookOpen size={23} strokeWidth={2.2}/></div><div><strong>My Study Hub</strong></div></div>
+        <div className="brand"><div className="brand-mark"><Code2 size={18} strokeWidth={2}/></div><div><strong>studyhub.local</strong></div></div>
         <nav>
           <NavButton active={page==='dashboard'} onClick={() => nav('dashboard')} icon={<LayoutDashboard size={18}/>}>Dashboard</NavButton>
           <NavButton active={page==='semesters'} onClick={() => nav('semesters')} icon={<GraduationCap size={18}/>}>Semesters</NavButton>
           <NavButton active={page==='projects'} onClick={() => nav('projects')} icon={<FolderKanban size={18}/>}>Study Projects</NavButton>
           <NavButton active={page==='study-notes'} onClick={() => nav('study-notes')} icon={<NotebookPen size={18}/>}>Study Notes</NavButton>
           <NavButton active={page==='knowledge'} onClick={() => nav('knowledge')} icon={<BrainCircuit size={18}/>}>Knowledge Vault</NavButton>
+          <NavButton active={page==='explore'} onClick={() => nav('explore')} icon={<Tags size={18}/>}>Explore</NavButton>
           <NavButton active={page==='settings'} onClick={() => nav('settings')} icon={<Settings size={18}/>}>Settings</NavButton>
         </nav>
       </aside>
@@ -76,7 +78,7 @@ export default function App() {
         <header className="topbar">
           <div className="search-wrap">
             <Search size={18}/>
-            <input value={search} onChange={e=>setSearch(e.target.value)} onFocus={()=>search && setSearchOpen(true)} placeholder="Search subjects, projects, notes, materials..." />
+            <input value={search} onChange={e=>setSearch(e.target.value)} onFocus={()=>search && setSearchOpen(true)} placeholder="search workspace..." />
             {searchOpen && <SearchPopover results={searchResults} onSubject={goSubject} onProject={goProject} onClose={()=>setSearchOpen(false)} />}
           </div>
           <div className="mode-pill"><span className="mode-dot"/>{isNative() ? 'Offline ready' : 'Preview mode'}</div>
@@ -92,6 +94,7 @@ export default function App() {
           {page === 'projects' && (projectId ? <StudyProjectWorkspace projectId={projectId} tab={projectTab} setTab={setProjectTab} onBack={()=>setProjectId(null)} reloadApp={reload}/> : <StudyProjects key={reloadKey} onOpen={goProject} reloadApp={reload}/>)}
           {page === 'study-notes' && <GlobalStudyNotes key={reloadKey} onSubject={goSubject} onProject={goProject} reloadApp={reload} />}
           {page === 'knowledge' && <KnowledgeVault key={reloadKey} onSubject={goSubject} onProject={goProject} reloadApp={reload} />}
+          {page === 'explore' && <ExplorePage key={reloadKey} onSubject={goSubject} onProject={goProject} />}
           {page === 'settings' && <SettingsPage reloadApp={reload} />}
         </section>
       </main>
@@ -174,18 +177,19 @@ function SemesterForm({initial,onClose,onSaved}:{initial:Semester|null;onClose:(
 }
 
 function SemesterDetail({semesterId,onBack,onSubject,reloadApp}:{semesterId:string;onBack:()=>void;onSubject:(id:string)=>void;reloadApp:()=>void}) {
-  const [semester,setSemester]=useState<Semester|null>(null); const [subjects,setSubjects]=useState<Subject[]>([]); const [show,setShow]=useState(false);
+  const [semester,setSemester]=useState<Semester|null>(null); const [subjects,setSubjects]=useState<Subject[]>([]); const [show,setShow]=useState(false); const [showImport,setShowImport]=useState(false);
   const load=async()=>{const sems=await call<Semester[]>('list_semesters');setSemester(sems.find(x=>x.id===semesterId)||null);setSubjects(await call<Subject[]>('list_subjects',{semesterId}));};
   useEffect(()=>{load()},[semesterId]);
   if(!semester)return <div className="loading">Loading...</div>;
   return <>
     <button className="back" onClick={onBack}><ChevronLeft size={16}/> All semesters</button>
-    <PageHeader eyebrow={semester.number!==null?`TERM ${semester.number}`:undefined} title={semester.name} description={semester.description||undefined} action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Subject</button>}/>
+    <PageHeader eyebrow={semester.number!==null?`TERM ${semester.number}`:undefined} title={semester.name} description={semester.description||undefined} action={<div className="page-actions"><button className="btn ghost" onClick={()=>setShowImport(true)}><FolderInput size={14}/> Import Folder</button><button className="btn primary" onClick={()=>setShow(true)}>+ Add Subject</button></div>}/>
     <div className="semester-meta"><Badge tone={statusTone(semester.status)}>{statusLabel[semester.status]}</Badge>{semester.start_date&&<span>{formatDate(semester.start_date)}</span>}{semester.end_date&&<span>→ {formatDate(semester.end_date)}</span>}</div>
     {subjects.length===0?<Empty title="No subjects yet" description="Subjects are fully manual too. Add only the courses you actually want to track." action={<button className="btn primary" onClick={()=>setShow(true)}>+ Add Subject</button>}/>:<div className="subject-grid">{subjects.map(s=><button className="subject-card" key={s.id} onClick={()=>onSubject(s.id)}>
       <div className="subject-card-top"><Badge tone={statusTone(s.status)}>{statusLabel[s.status]}</Badge><Stars value={s.importance} readOnly/></div><strong>{s.code}</strong><h3>{s.name}</h3><p className="clamp">{s.introduction||s.my_understanding||'No introduction yet.'}</p>
     </button>)}</div>}
     {show&&<SubjectForm semesterId={semesterId} onClose={()=>setShow(false)} onSaved={()=>{setShow(false);load();reloadApp()}}/>}
+    {showImport&&<SemesterImportModal semester={semester} subjects={subjects} onClose={()=>setShowImport(false)} onImported={()=>{setShowImport(false);load();reloadApp()}}/>}
   </>;
 }
 
@@ -212,6 +216,7 @@ function SubjectWorkspace({subjectId,tab,setTab,onBack,reloadApp}:{subjectId:str
   return <>
     <button className="back" onClick={onBack}><ChevronLeft size={16}/> Semester</button>
     <div className="subject-hero"><div><div className="hero-meta"><Badge tone={statusTone(subject.status)}>{statusLabel[subject.status]}</Badge><Stars value={subject.importance} readOnly/></div><span className="subject-code">{subject.code}</span><h1>{subject.name}</h1>{subject.importance_reason&&<p>{subject.importance_reason}</p>}</div><button className="btn ghost" onClick={()=>setShowEdit(true)}><Pencil size={15}/> Edit subject</button></div>
+    <EntityTags entityType="subject" entityId={subject.id}/>
     <div className="tabs">{tabs.map(([k,label])=><button key={k} className={tab===k?'active':''} onClick={()=>setTab(k)}>{label}</button>)}</div>
     {tab==='overview'&&<SubjectOverview subject={subject}/>} 
     {tab==='study-notes'&&<StudyNotesPanel subject={subject} reloadApp={reloadApp}/>} 
@@ -425,6 +430,7 @@ function StudyProjectWorkspace({projectId,tab,setTab,onBack,reloadApp}:{projectI
   const total=project.stage_count||0, done=project.completed_stage_count||0, progress=total?Math.round(done/total*100):0;
   return <><button className="back" onClick={onBack}><ChevronLeft size={15}/> Study Projects</button>
     <div className="project-hero"><div><span className="kicker">SELF-DIRECTED STUDY</span><h1>{project.title}</h1><p>{project.subtitle||project.description||'Independent learning project'}</p><div className="hero-meta"><Badge tone={statusTone(project.status)}>{statusLabel[project.status]}</Badge><Stars value={project.importance} readOnly/>{project.start_date&&<span>{formatDate(project.start_date)}</span>}</div></div><div className="project-hero-progress"><strong>{progress}%</strong><span>Roadmap complete</span><div className="progress-track"><i style={{width:`${progress}%`}}/></div></div></div>
+    <EntityTags entityType="study_project" entityId={project.id}/>
     <div className="workspace-tabs project-tabs">{tabs.map(([id,label,icon])=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}>{icon}{label}</button>)}</div>
     <div className="workspace-body">
       {tab==='overview'&&<ProjectOverviewPanel project={project} onEdit={()=>setEdit(true)} onDelete={async()=>{await call('delete_study_project',{id:project.id});reloadApp();onBack()}}/>}
@@ -517,6 +523,147 @@ function KnowledgeVault({onSubject,onProject,reloadApp}:{onSubject:(id:string)=>
   const term=q.toLowerCase();const a=academic.filter(n=>`${n.title} ${n.content} ${n.why_it_matters||''} ${n.subject_code||''}`.toLowerCase().includes(term));const p=projects.filter(n=>`${n.title} ${n.content} ${n.why_it_matters||''} ${n.project_title||''}`.toLowerCase().includes(term));
   return <><PageHeader title="Knowledge Vault"/><div className="toolbar"><input className="filter" placeholder="Search knowledge..." value={q} onChange={e=>setQ(e.target.value)}/></div>{a.length===0&&p.length===0?<Empty title="Knowledge Vault is empty"/>:<div className="knowledge-grid">{a.map(n=><button className={`knowledge-card clickable ${n.is_pinned?'pinned':''}`} key={`a-${n.id}`} onClick={()=>onSubject(n.subject_id)}><div className="card-head"><div><span className="kicker">{n.subject_code||'SUBJECT'}</span><h3>{n.title}</h3></div><Stars value={n.importance} readOnly/></div><p className="prewrap">{n.content}</p>{n.why_it_matters&&<div className="why"><strong>Why it matters</strong><p>{n.why_it_matters}</p></div>}</button>)}{p.map(n=><button className={`knowledge-card clickable project-knowledge ${n.is_pinned?'pinned':''}`} key={`p-${n.id}`} onClick={()=>onProject(n.project_id)}><div className="card-head"><div><span className="kicker">PROJECT · {n.project_title}</span><h3>{n.title}</h3></div><Stars value={n.importance} readOnly/></div><p className="prewrap">{n.content}</p>{n.why_it_matters&&<div className="why"><strong>Why it matters</strong><p>{n.why_it_matters}</p></div>}</button>)}</div>}</>;
 }
+
+type FolderImportKind = 'study_note' | 'material' | 'report_file';
+type FolderImportStatus = 'new' | 'changed' | 'unchanged' | 'duplicate' | 'unmatched';
+type FolderFile = File & { webkitRelativePath?: string };
+
+type ImportCandidate = {
+  key: string;
+  file: File;
+  relativePath: string;
+  hash: string;
+  subjectId: string;
+  kind: FolderImportKind;
+  title: string;
+  materialType: string;
+  reportTitle: string;
+  week: number | null;
+  slot: number | null;
+  studyDate: string | null;
+  status: FolderImportStatus;
+  selected: boolean;
+};
+
+function normalizePath(path:string) { return path.replace(/\\/g,'/').replace(/^\.\//,''); }
+function cleanTitle(name:string) { return name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim(); }
+function normalizedToken(value:string) { return value.toLowerCase().replace(/[^a-z0-9]+/g,''); }
+
+async function sha256File(file:File) {
+  const bytes = await file.arrayBuffer();
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+
+function detectSubjectId(relativePath:string, subjects:Subject[]) {
+  const path = relativePath.toLowerCase();
+  const segments = path.split('/').map(x=>x.trim()).filter(Boolean);
+  let best:{id:string;score:number}|null=null;
+  for (const subject of subjects) {
+    const code = subject.code.toLowerCase();
+    const nameToken = normalizedToken(subject.name);
+    const segmentTokens = segments.map(normalizedToken);
+    let score = 0;
+    if (segments.some(x=>x===code)) score = 100;
+    else if (segments.some(x=>x.startsWith(code))) score = 90;
+    else if (new RegExp(`(^|[^a-z0-9])${code.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}([^a-z0-9]|$)`,'i').test(path)) score = 80;
+    else if (nameToken && segmentTokens.some(x=>x===nameToken)) score = 70;
+    else if (nameToken.length > 5 && normalizedToken(path).includes(nameToken)) score = 55;
+    if (!best || score > best.score) best = score ? {id:subject.id,score} : best;
+  }
+  return best?.id || '';
+}
+
+function detectImportKind(relativePath:string, filename:string):FolderImportKind {
+  const path = relativePath.toLowerCase();
+  const parsed = parseStudyNoteFilename(filename);
+  if (parsed || (/\.(txt|md)$/i.test(filename) && /(^|\/)(study[- _]?notes?|notes?)(\/|$)/i.test(path))) return 'study_note';
+  if (/(^|\/)(reports?|assignments?|presentations?|deliverables?)(\/|$)/i.test(path)) return 'report_file';
+  return 'material';
+}
+
+function detectMaterialType(relativePath:string, filename:string) {
+  const path = `${relativePath} ${filename}`.toLowerCase();
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  if (/slide|lecture|lesson/.test(path) || ['ppt','pptx'].includes(ext)) return 'Slide';
+  if (/template/.test(path)) return 'Template';
+  if (/source|code|sample|demo/.test(path) || ['java','js','ts','tsx','jsx','py','cs','cpp','c','h','zip','rar','7z'].includes(ext)) return 'Source Code';
+  if (/guide|tutorial|skill|how[- _]?to/.test(path)) return 'Guide';
+  if (ext === 'pdf') return 'PDF';
+  if (['doc','docx','odt'].includes(ext)) return 'Document';
+  if (['xls','xlsx','csv'].includes(ext)) return 'Spreadsheet';
+  return 'Reference';
+}
+
+function detectReportTitle(relativePath:string, filename:string) {
+  const parts = normalizePath(relativePath).split('/').filter(Boolean);
+  const idx = parts.findIndex(x=>/^(reports?|assignments?|presentations?|deliverables?)$/i.test(x));
+  if (idx >= 0 && parts[idx+1] && parts[idx+1] !== filename) return cleanTitle(parts[idx+1]);
+  return cleanTitle(filename);
+}
+
+function EntityTags({entityType,entityId}:{entityType:TaggableEntityType;entityId:string}) {
+  const [tags,setTags]=useState<Tag[]>([]); const [all,setAll]=useState<Tag[]>([]); const [editing,setEditing]=useState(false); const [value,setValue]=useState('');
+  const load=()=>Promise.all([call<Tag[]>('get_entity_tags',{entityType,entityId}),call<Tag[]>('list_tags')]).then(([a,b])=>{setTags(a);setAll(b);setValue(a.map(x=>x.name).join(', '))});
+  useEffect(()=>{load()},[entityType,entityId]);
+  const save=async()=>{const names=value.split(',').map(x=>x.trim()).filter(Boolean);await call('set_entity_tags',{entityType,entityId,tagNames:names});setEditing(false);load();};
+  return <div className="entity-tags">
+    <div className="tag-row"><Hash size={13}/>{tags.length ? tags.map(t=><span className="tag-chip" key={t.id}>#{t.name}</span>) : <span className="tag-empty">no tags</span>}<button className="tag-edit" onClick={()=>setEditing(v=>!v)}>{editing?'cancel':'edit'}</button></div>
+    {editing&&<div className="tag-editor"><input list={`tags-${entityType}-${entityId}`} value={value} onChange={e=>setValue(e.target.value)} placeholder="java, backend, exam"/><datalist id={`tags-${entityType}-${entityId}`}>{all.map(t=><option key={t.id} value={t.name}/>)}</datalist><button className="btn primary small" onClick={save}>Save tags</button></div>}
+  </div>;
+}
+
+function SemesterImportModal({semester,subjects,onClose,onImported}:{semester:Semester;subjects:Subject[];onClose:()=>void;onImported:()=>void}) {
+  const [items,setItems]=useState<ImportCandidate[]>([]); const [scanning,setScanning]=useState(false); const [scanText,setScanText]=useState(''); const [importing,setImporting]=useState(false); const [progress,setProgress]=useState(0); const [message,setMessage]=useState('');
+  const chooseFolder=async(files?:FileList|null)=>{
+    if(!files?.length)return; setScanning(true);setMessage('');setScanText('Reading folder...');
+    const records=await call<ImportRecord[]>('list_import_records',{semesterId:semester.id});
+    const list=Array.from(files).filter(f=>!/(^|\/)(\.DS_Store|Thumbs\.db)$/i.test((f as FolderFile).webkitRelativePath||f.name)&&!f.name.startsWith('~$'));
+    const next:ImportCandidate[]=[];
+    for(let i=0;i<list.length;i++){
+      const file=list[i] as FolderFile;setScanText(`Hashing ${i+1}/${list.length} · ${file.name}`);
+      const full=normalizePath(file.webkitRelativePath||file.name);const parts=full.split('/');const relativePath=parts.length>1?parts.slice(1).join('/'):full;
+      const hash=await sha256File(file);const subjectId=detectSubjectId(relativePath,subjects);const kind=detectImportKind(relativePath,file.name);const parsed=parseStudyNoteFilename(file.name);
+      const samePath=records.find(r=>r.relative_path===relativePath);const sameHash=records.find(r=>r.content_hash===hash);
+      const status:FolderImportStatus=!subjectId?'unmatched':samePath?.content_hash===hash?'unchanged':samePath?'changed':sameHash?'duplicate':'new';
+      next.push({key:`${relativePath}-${hash.slice(0,8)}`,file,relativePath,hash,subjectId,kind,title:cleanTitle(file.name),materialType:detectMaterialType(relativePath,file.name),reportTitle:detectReportTitle(relativePath,file.name),week:parsed?.week??null,slot:parsed?.slot??null,studyDate:parsed?.study_date??null,status,selected:status==='new'||status==='changed'});
+    }
+    setItems(next);setScanning(false);setScanText('');
+  };
+  const patchItem=(key:string,patch:Partial<ImportCandidate>)=>setItems(xs=>xs.map(x=>x.key===key?{...x,...patch}:x));
+  const importSelected=async()=>{
+    const selected=items.filter(x=>x.selected&&x.subjectId&&(x.status==='new'||x.status==='changed'||x.status==='unmatched'));
+    if(!selected.length){setMessage('Nothing selected for import.');return;} setImporting(true);setProgress(0);let done=0;
+    for(const item of selected){
+      const rawNote=item.kind==='study_note'&&/\.(txt|md)$/i.test(item.file.name)?await item.file.text():'';
+      const b64=await fileToBase64(item.file);
+      await call('import_semester_file',{input:{semester_id:semester.id,relative_path:item.relativePath,content_hash:item.hash,file_size:item.file.size,last_modified:item.file.lastModified,subject_id:item.subjectId,kind:item.kind,title:item.title,material_type:item.materialType,report_title:item.reportTitle,week:item.week,slot:item.slot,study_date:item.studyDate,topic:null,raw_note:rawNote,original_filename:item.file.name,file_base64:b64}});
+      done++;setProgress(Math.round(done/selected.length*100));
+    }
+    setImporting(false);setMessage(`Imported ${done} file${done===1?'':'s'}.`);setTimeout(onImported,450);
+  };
+  const counts=useMemo(()=>items.reduce((a,x)=>{a[x.status]=(a[x.status]||0)+1;return a;},{} as Record<string,number>),[items]);
+  return <Modal title={`Import Semester Folder · ${semester.name}`} onClose={onClose} wide>
+    <div className="import-intro"><FolderInput size={18}/><div><strong>Drop in an existing semester archive.</strong><span>Files are hashed, matched to subject folders, classified, and only new/changed files are imported.</span></div></div>
+    <Field label="Semester folder" hint="Recommended: one top-level folder with subject folders named by subject code, e.g. FALL2026/SWR302/..."><input type="file" multiple {...({webkitdirectory:'',directory:''} as any)} onChange={e=>chooseFolder(e.target.files)}/></Field>
+    {scanning&&<div className="scan-line"><RefreshCw size={14} className="spin"/><span>{scanText}</span></div>}
+    {items.length>0&&<><div className="import-summary"><span><b>{items.length}</b> files</span><span className="state-new"><b>{counts.new||0}</b> new</span><span className="state-changed"><b>{counts.changed||0}</b> changed</span><span><b>{counts.unchanged||0}</b> unchanged</span><span><b>{counts.duplicate||0}</b> duplicate</span><span className="state-unmatched"><b>{counts.unmatched||0}</b> unmatched</span></div>
+      <div className="import-table"><div className="import-row header"><span></span><span>Path</span><span>Subject</span><span>Route</span><span>State</span></div>{items.map(x=><div className={`import-row ${x.status}`} key={x.key}><input type="checkbox" checked={x.selected} disabled={x.status==='unchanged'||x.status==='duplicate'} onChange={e=>patchItem(x.key,{selected:e.target.checked})}/><div className="path-cell"><strong>{x.file.name}</strong><code>{x.relativePath}</code></div><select value={x.subjectId} onChange={e=>patchItem(x.key,{subjectId:e.target.value,status:e.target.value?(x.status==='unmatched'?'new':x.status):'unmatched',selected:!!e.target.value})}><option value="">Unmatched</option>{subjects.map(s=><option key={s.id} value={s.id}>{s.code}</option>)}</select><select value={x.kind} onChange={e=>patchItem(x.key,{kind:e.target.value as FolderImportKind})}><option value="material">Material</option><option value="study_note">Study Note</option><option value="report_file">Report File</option></select><span className={`import-state ${x.status}`}>{x.status}</span></div>)}</div>
+      <div className="import-footer"><div>{message||`${items.filter(x=>x.selected).length} selected`}{importing&&<span> · {progress}%</span>}</div><div className="page-actions"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={importing||scanning} onClick={importSelected}>{importing?<><RefreshCw size={14} className="spin"/> Importing</>:<><FileUp size={14}/> Import selected</>}</button></div></div></>}
+  </Modal>;
+}
+
+function ExplorePage({onSubject,onProject}:{onSubject:(id:string)=>void;onProject:(id:string)=>void}) {
+  const [tags,setTags]=useState<Tag[]>([]);const [semesters,setSemesters]=useState<Semester[]>([]);const [items,setItems]=useState<ExploreItem[]>([]);const [query,setQuery]=useState('');const [tag,setTag]=useState('');const [kind,setKind]=useState('all');const [semester,setSemester]=useState('');
+  useEffect(()=>{Promise.all([call<Tag[]>('list_tags'),call<Semester[]>('list_semesters')]).then(([t,s])=>{setTags(t);setSemesters(s)})},[]);
+  useEffect(()=>{const timer=setTimeout(()=>call<ExploreItem[]>('explore_items',{query,tag,kind,semesterId:semester}).then(setItems),120);return()=>clearTimeout(timer)},[query,tag,kind,semester]);
+  const kinds=[['all','All types'],['subject','Subjects'],['study_project','Projects'],['study_note','Study Notes'],['material','Materials'],['critical_note','Critical Notes'],['report','Reports'],['project_note','Project Notes'],['project_resource','Project Resources'],['project_knowledge','Project Knowledge'],['project_experiment','Experiments']];
+  return <><PageHeader eyebrow="INDEX" title="Explore" description="Query your study graph by tag, type, semester, or text."/>
+    <div className="explore-shell"><aside className="explore-filters"><div className="filter-head"><Filter size={14}/> FILTERS</div><Field label="Tag"><select value={tag} onChange={e=>setTag(e.target.value)}><option value="">All tags</option>{tags.map(t=><option key={t.id} value={t.name}>#{t.name} ({t.usage_count||0})</option>)}</select></Field><Field label="Type"><select value={kind} onChange={e=>setKind(e.target.value)}>{kinds.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></Field><Field label="Semester"><select value={semester} onChange={e=>setSemester(e.target.value)}><option value="">All / self study</option>{semesters.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></Field><div className="tag-cloud">{tags.slice(0,30).map(t=><button key={t.id} className={tag===t.name?'active':''} onClick={()=>setTag(tag===t.name?'':t.name)}>#{t.name}</button>)}</div></aside>
+    <section className="explore-results"><div className="explore-search"><Terminal size={16}/><input placeholder="grep knowledge, notes, materials..." value={query} onChange={e=>setQuery(e.target.value)}/><span>{items.length} hits</span></div>{items.length===0?<Empty title="No matching nodes" description="Add tags to a subject or study project, then filter the inherited content here."/>:<div className="explore-table"><div className="explore-row header"><span>TYPE</span><span>NAME</span><span>CONTEXT</span><span>TAGS</span></div>{items.map(x=><button className="explore-row" key={`${x.kind}-${x.id}`} onClick={()=>x.project_id?onProject(x.project_id):x.subject_id?onSubject(x.subject_id):undefined}><span className="type-code">{x.kind.replace('project_','p/').replace('study_','s/').replace('critical_','c/')}</span><div><strong>{x.title}</strong><small>{x.subtitle}</small></div><code>{x.context||'—'}</code><div className="row-tags">{x.tags.length?x.tags.slice(0,5).map(t=><span key={t}>#{t}</span>):<em>—</em>}</div></button>)}</div>}</section></div>
+  </>;
+}
+
 
 function SettingsPage({reloadApp}:{reloadApp:()=>void}) {
   const [info,setInfo]=useState<AppInfo|null>(null);const [message,setMessage]=useState('');

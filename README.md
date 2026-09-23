@@ -1,11 +1,23 @@
 # My Study Hub
 
-**Version 2.3.0 — React + Tailwind UI redesign**
+**Version 2.5.0 — Developer Workspace + Folder Import + Tags**
 
 **Stable Windows setup:** install the generated `-setup.exe` once, then launch My Study Hub from the Windows Start Menu. Local SQLite data remains separate from the installed program files. See `STABLE_SETUP.md`.
 
 
 A private desktop study management system built around **manual setup, deep study notes, and long-term knowledge retention**.
+
+
+## What is new in 2.5.0
+
+- **Semester Folder Import** — choose an existing semester folder, preview routing, then import new or changed files in bulk.
+- **SHA-256 deduplication** — unchanged files are skipped and duplicate content is detected even when filenames differ.
+- **Automatic routing** — subject folders/codes are matched first, then files are classified as Study Notes, Materials, or Report Files.
+- **Incremental sync** — re-import the same semester folder later and only new/changed files are selected by default.
+- **Global tags** — tag Subjects, Study Projects, Notes, Materials, Reports, Knowledge, Resources, and Experiments.
+- **Inherited tags** — content automatically inherits tags from its parent Subject or Study Project for filtering.
+- **Explore** — filter the whole local knowledge base by tag, type, semester, and search text.
+- **Developer-focused UI** — flatter graphite interface, compact spacing, monospace metadata, terminal-like search, fewer decorative cards, and higher information density.
 
 
 ## Frontend design stack

@@ -1,5 +1,5 @@
 import React, { ReactNode } from 'react';
-import { X, Sparkles } from 'lucide-react';
+import { X, Terminal } from 'lucide-react';
 
 export function Modal({ title, children, onClose, wide = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
   return (
@@ -38,7 +38,7 @@ export function Badge({ children, tone = 'neutral' }: { children: ReactNode; ton
 export function Empty({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
     <div className="empty">
-      <div className="empty-icon"><Sparkles size={24}/></div>
+      <div className="empty-icon"><Terminal size={20}/></div>
       <h3>{title}</h3>
       {description && <p>{description}</p>}
       {action}
